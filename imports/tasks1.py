@@ -22,6 +22,7 @@ from matplotlib.dates import DateFormatter
 
 from imports.core_utils import discord_client, cursor, tasks_list, mongo_client
 from imports.api import api_openai
+import shutil
 import imports.helpers as helpers
 import imports.api.api_third_party as api_third_party
 import imports.api.api_epic as api_epic
@@ -36,7 +37,7 @@ coles_updates_collection = mongo_db['coles_updates']
 start_time = time(20, 1, 0)
 end_time = time(7, 0, 0)
 time_list = [time(hour, minute) for hour in range(start_time.hour, 24) for minute in range(0, 60, 1)] + [time(hour, minute) for hour in range(end_time.hour + 1) for minute in range(0, 60, 1)]
-coles_time = [time(19, 0)]
+coles_time = [time(19, 1)]
 
 async def tasks_on_ready():
 	await discord_client.change_presence(activity=discord.Activity(type=discord.ActivityType.watching, name="me booty arrrr"))
@@ -56,18 +57,20 @@ async def tasks_on_ready():
 		ozb_bangers.start()
 	if not gog_free_games.is_running():
 		gog_free_games.start()
-	if not lego_bg.is_running():
-		lego_bg.start()
+	# if not lego_bg.is_running():
+	# 	lego_bg.start()
 	if not fuel_check.is_running():
 		fuel_check.start()
-	if not fortnite_shop_update_v3.is_running():
-		fortnite_shop_update_v3.start()
+	# if not fortnite_shop_update_v3.is_running():
+	# 	fortnite_shop_update_v3.start()
 	if not coles_updates.is_running():
 		coles_updates.start()
 	if not check_scheduled_maintenance.is_running():
 		check_scheduled_maintenance.start()
 	if not tv_updates.is_running():
 		tv_updates.start()
+	if not stat_updates.is_running():
+		stat_updates.start()
 	tasks_list["update"] = fortnite_update_bg
 	tasks_list["tv"] = tv_show_update_bg
 	tasks_list["status"] = fortnite_status_bg
@@ -78,86 +81,127 @@ async def tasks_on_ready():
 	tasks_list['lego'] = lego_bg
 	tasks_list['shop'] = fortnite_shop_update_v3
 	tasks_list['tv_updates'] = tv_updates
+	tasks_list['stat_updates'] = stat_updates
 	print(f"{discord_client.user} is online! My PID is {os.getpid()}.")
 
-@tasks.loop(time=time_list)
+@tasks.loop(time=time_list, reconnect=True)
 async def arpansa():
-	try:
-		ch = discord_client.get_channel(int(os.getenv('UV_CHANNEL')))
-		role = os.getenv('SUNSCREEN_ROLE')
-		current_date = dt.now(helpers.timezone).strftime('%Y-%m-%d')
-		current_time = (dt.now(helpers.timezone)-timedelta(minutes=1)).strftime('%H:%M')
-		db_date = cursor.execute("SELECT start FROM uv_times").fetchone()[0]
-		data = uv.get_arpansa_data()
-		current_uv = float(data['CurrentUVIndex'])
-		max_uv_today_recorded = float(data['MaximumUVLevel'])
-		max_uv_today_recorded_time = data['MaximumUVLevelDateTime'][-5:]
-		r = data['GraphData']
-		forecast_graph = [entry["Forecast"] for entry in data["GraphData"]]
-		measured_graph = [entry["Measured"] for entry in data["GraphData"]]
-		dates_graph = [dt.strptime(entry["Date"], "%Y-%m-%d %H:%M") for entry in data["GraphData"]]
-		plt.figure(figsize=(12, 6))
-		plt.fill_between(dates_graph, 0, 3, color="green", alpha=0.3, label="Low")
-		plt.fill_between(dates_graph, 3, 6, color="yellow", alpha=0.3, label="Moderate")
-		plt.fill_between(dates_graph, 6, 8, color="orange", alpha=0.3, label="High")
-		plt.fill_between(dates_graph, 8, 11, color="red", alpha=0.3, label="Very High")
-		plt.fill_between(dates_graph, 11, 16, color="purple", alpha=0.3, label="Extreme")
-		plt.plot(dates_graph, forecast_graph, label="Forecast", linestyle="--", color="blue")
-		plt.plot(dates_graph, measured_graph, label="Measured", color="orange")
-		plt.xlim(dates_graph[0], dates_graph[-1])
-		plt.ylim(0, 16)
-		plt.xticks(rotation=0)
-		plt.gca().xaxis.set_major_formatter(DateFormatter("%H:%M"))
-		plt.yticks(range(0, 17))
-		plt.grid(True, linestyle="--", alpha=0.5)
-		plt.legend()
-		plt.tight_layout()
-		plt.savefig("uv_index_plot.png")
-		plt.close()
+    try:
+        ch = discord_client.get_channel(int(os.getenv('UV_CHANNEL')))
+        role = os.getenv('SUNSCREEN_ROLE')
+        current_date = dt.now(helpers.timezone).strftime('%Y-%m-%d')
+        current_time = (dt.now(helpers.timezone) - timedelta(minutes=1)).strftime('%H:%M')
+        db_date = cursor.execute("SELECT start FROM uv_times").fetchone()[0]
+        data = uv.get_arpansa_data()
 
-		if db_date != current_date:
-			print("It's a new day!")
-			first_forecast_gte_3_item = next((item for item in r if item['Forecast'] >= 3), None)
-			max_uv_today_forecast = max(r, key=lambda item: item['Forecast'])['Forecast']
-			max_uv_today_forecast_time = max(r, key=lambda item: item['Forecast'])['Date'][-5:]
-			embed = discord.Embed(color=0xa3c80a)
-			if first_forecast_gte_3_item:
-				first_forecast_lt_3_item = next((item for item in r[r.index(first_forecast_gte_3_item) + 1:] if item['Forecast'] < 3), None)
-				embed.title = "Sun protection required today"
-				# await ch.send(f"<@&{role}>")
-				embed.add_field(name="Time", value=f"{first_forecast_gte_3_item['Date'][-5:]} - {first_forecast_lt_3_item['Date'][-5:]}", inline=False)
-				cursor.execute("UPDATE uv_times SET safe = 0")
-			else:
-				embed.title = "No sun protection required today"
-				cursor.execute("UPDATE uv_times SET safe = 1")
-			embed.add_field(name="Maximum UV (Forecast)", value=f"{uv.calculate_emoji(max_uv_today_forecast)} {max_uv_today_forecast} at {max_uv_today_forecast_time}", inline=False)
-			embed.add_field(name="Maximum UV (Recorded)", value=f"{uv.calculate_emoji(max_uv_today_recorded)} {max_uv_today_recorded} at {max_uv_today_recorded_time}", inline=False)
-			embed.add_field(name="Current UV", value=f"{uv.calculate_emoji(current_uv)} {current_uv} at {current_time}", inline=False)
-			msg = await ch.send(embed=embed)
-			cursor.execute("UPDATE uv_times SET end = ?", (msg.id,))
-			cursor.execute("UPDATE uv_times SET start = ?", (current_date,))
+        current_uv = float(data['CurrentUVIndex'])
+        max_uv_today_recorded = float(data['MaximumUVLevel'])
+        max_uv_today_recorded_time = data['MaximumUVLevelDateTime'][-5:]
+        r = data['GraphData']
+        forecast_graph = [entry["Forecast"] for entry in r]
+        measured_graph = [entry["Measured"] for entry in r]
+        dates_graph = [dt.strptime(entry["Date"], "%Y-%m-%d %H:%M") for entry in r]
 
-		msg = await ch.fetch_message(int(cursor.execute("SELECT end FROM uv_times").fetchone()[0]))
-		emb = msg.embeds[0]
-		emb.set_field_at(-1, name="Current UV", value=f"{uv.calculate_emoji(current_uv)} {current_uv} at {current_time}")
-		emb.set_field_at(-2, name="Maximum UV (Recorded)", value=f"{uv.calculate_emoji(max_uv_today_recorded)} {max_uv_today_recorded} at {max_uv_today_recorded_time}", inline=False)
-		emb.color = discord.Color(uv.calculate_hex(current_uv))
-		file = discord.File("uv_index_plot.png", filename="uv_index_plot.png")
-		emb.set_image(url="attachment://uv_index_plot.png")
-		await msg.edit(embed=emb, file=file)
+        plt.figure(figsize=(12, 6))
+        plt.fill_between(dates_graph, 0, 3, color="green", alpha=0.3, label="Low")
+        plt.fill_between(dates_graph, 3, 6, color="yellow", alpha=0.3, label="Moderate")
+        plt.fill_between(dates_graph, 6, 8, color="orange", alpha=0.3, label="High")
+        plt.fill_between(dates_graph, 8, 11, color="red", alpha=0.3, label="Very High")
+        plt.fill_between(dates_graph, 11, 16, color="purple", alpha=0.3, label="Extreme")
+        plt.plot(dates_graph, forecast_graph, label="Forecast", linestyle="--", color="blue")
+        plt.plot(dates_graph, measured_graph, label="Measured", color="orange")
+        plt.xlim(dates_graph[0], dates_graph[-1])
+        plt.ylim(0, 16)
+        plt.xticks(rotation=0)
+        plt.gca().xaxis.set_major_formatter(DateFormatter("%H:%M"))
+        plt.yticks(range(0, 17))
+        plt.grid(True, linestyle="--", alpha=0.5)
+        plt.legend()
+        plt.tight_layout()
+        plt.savefig("uv_index_plot.png")
+        plt.close()
 
-		await ch.edit(name=f"{uv.calculate_emoji(current_uv)} uv")
+        if db_date != current_date:
+            print("It's a new day!")
 
-		safe = bool(cursor.execute("SELECT safe FROM uv_times").fetchone()[0])
-		if safe and current_uv >= 3:
-			await ch.send(f"<@&{role}> Earlier forecast was incorrect - UV index is now above safe levels. slip slop slap bitch")
-			cursor.execute("UPDATE uv_times SET safe = 0")
-	except Exception as e:
-		print(f"ARPANSA task encountered an exception: {e}")
-		await asyncio.sleep(60)
-		arpansa.restart()
+            first_forecast_gte_3_item = next(
+                (item for item in r if item['Forecast'] is not None and item['Forecast'] >= 3),
+                None
+            )
+            max_uv_today_forecast = max((item['Forecast'] for item in r if item['Forecast'] is not None), default=0)
+            max_uv_today_forecast_time = next(
+                (item['Date'][-5:] for item in r if item['Forecast'] == max_uv_today_forecast),
+                "N/A"
+            )
 
-@tasks.loop(minutes=5)
+            embed = discord.Embed(color=0xa3c80a)
+
+            if first_forecast_gte_3_item:
+                first_forecast_index = r.index(first_forecast_gte_3_item)
+                first_forecast_lt_3_item = next(
+                    (item for item in r[first_forecast_index + 1:] if item['Forecast'] is not None and item['Forecast'] < 3),
+                    None
+                )
+                forecast_time_range = f"{first_forecast_gte_3_item['Date'][-5:]} - {first_forecast_lt_3_item['Date'][-5:]}" if first_forecast_lt_3_item else f"{first_forecast_gte_3_item['Date'][-5:]} onwards"
+                embed.title = "Sun protection required today"
+            else:
+                forecast_time_range = "No high UV forecasted"
+                embed.title = "No sun protection required today"
+
+            embed.add_field(name="Time (Forecast)", value=forecast_time_range, inline=False)
+
+            first_recorded_gte_3_item = next(
+                (item for item in r if item['Measured'] is not None and item['Measured'] >= 3),
+                None
+            )
+            last_recorded_gte_3_item = next(
+                (item for item in reversed(r) if item['Measured'] is not None and item['Measured'] >= 3),
+                None
+            )
+            recorded_time_range = f"{first_recorded_gte_3_item['Date'][-5:]} - {last_recorded_gte_3_item['Date'][-5:]}" if first_recorded_gte_3_item else "No high UV recorded"
+            embed.add_field(name="Time (Recorded)", value=recorded_time_range, inline=False)
+
+            embed.add_field(name="Maximum UV (Forecast)", value=f"{uv.calculate_emoji(max_uv_today_forecast)} {max_uv_today_forecast} at {max_uv_today_forecast_time}", inline=False)
+            embed.add_field(name="Maximum UV (Recorded)", value=f"{uv.calculate_emoji(max_uv_today_recorded)} {max_uv_today_recorded} at {max_uv_today_recorded_time}", inline=False)
+            embed.add_field(name="Current UV", value=f"{uv.calculate_emoji(current_uv)} {current_uv} at {current_time}", inline=False)
+
+            msg = await ch.send(embed=embed)
+            cursor.execute("UPDATE uv_times SET end = ?", (msg.id,))
+            cursor.execute("UPDATE uv_times SET start = ?", (current_date,))
+            cursor.execute("UPDATE uv_times SET safe = ?", (0 if first_forecast_gte_3_item else 1,))
+
+        msg = await ch.fetch_message(int(cursor.execute("SELECT end FROM uv_times").fetchone()[0]))
+        emb = msg.embeds[0]
+
+        first_recorded_gte_3_item = next(
+            (item for item in r if item['Measured'] is not None and item['Measured'] >= 3),
+            None
+        )
+        last_recorded_gte_3_item = next(
+            (item for item in reversed(r) if item['Measured'] is not None and item['Measured'] >= 3),
+            None
+        )
+        recorded_time_range = f"{first_recorded_gte_3_item['Date'][-5:]} - {last_recorded_gte_3_item['Date'][-5:]}" if first_recorded_gte_3_item else "No high UV recorded"
+        emb.set_field_at(1, name="Time (Recorded)", value=recorded_time_range, inline=False)
+
+        emb.set_field_at(-2, name="Maximum UV (Recorded)", value=f"{uv.calculate_emoji(max_uv_today_recorded)} {max_uv_today_recorded} at {max_uv_today_recorded_time}", inline=False)
+        emb.set_field_at(-1, name="Current UV", value=f"{uv.calculate_emoji(current_uv)} {current_uv} at {current_time}")
+        emb.color = discord.Color(uv.calculate_hex(current_uv))
+
+        file = discord.File("uv_index_plot.png", filename="uv_index_plot.png")
+        emb.set_image(url="attachment://uv_index_plot.png")
+        await msg.edit(embed=emb, file=file)
+        await ch.edit(name=f"{uv.calculate_emoji(current_uv)} {round(current_uv)}")
+
+        safe = bool(cursor.execute("SELECT safe FROM uv_times").fetchone()[0])
+        if safe and current_uv >= 3:
+            await ch.send(f"<@&{role}> Earlier forecast was incorrect - UV index is now above safe levels. slip slop slap bitch")
+            cursor.execute("UPDATE uv_times SET safe = 0")
+
+    except Exception as e:
+        print(f"ARPANSA task encountered an exception: {e}.\nWill reconnect automatically.")
+
+@tasks.loop(minutes=5, reconnect=True)
 async def fortnite_update_bg():
 	try:
 		channel = discord_client.get_channel(int(os.getenv('UPD8_CHANNEL')))
@@ -169,11 +213,9 @@ async def fortnite_update_bg():
 			embed.add_field(name="Build", value=response, inline=False)
 			await channel.send("<@&" + os.getenv('UPD8_ROLE') + ">", embed=embed)
 	except Exception as e:
-		print("Something went wrong getting the Fortnite manifest: " + str(repr(e)) + "\nRestarting internal task in 1 minute.")
-		await asyncio.sleep(60)
-		fortnite_update_bg.restart()
+		print("Something went wrong getting the Fortnite manifest: " + str(repr(e)))
 
-@tasks.loop(minutes=180)
+@tasks.loop(minutes=180, reconnect=True)
 async def check_scheduled_maintenance():
     try:
         channel = discord_client.get_channel(int(os.getenv('UPD8_CHANNEL')))
@@ -196,11 +238,9 @@ async def check_scheduled_maintenance():
             await channel.send("<@&" + os.getenv('UPD8_ROLE') + ">", embed=embed)
             cursor.execute("INSERT INTO scheduled_maintenance (id) VALUES (?)", (maintenance_id,))
     except Exception as e:
-        print(f"Error checking maintenance: {repr(e)}\nRestarting task in 3 minutes.")
-        await asyncio.sleep(180)
-        check_scheduled_maintenance.restart()
+        print(f"Error checking maintenance: {repr(e)}")
 
-@tasks.loop(minutes=5)
+@tasks.loop(minutes=5, reconnect=True)
 async def fortnite_status_bg():
 	try:
 		channel = discord_client.get_channel(int(os.getenv('UPD8_CHANNEL')))
@@ -212,9 +252,7 @@ async def fortnite_status_bg():
 			embed.add_field(name="Status", value=response)
 			await channel.send("<@&" + os.getenv('UPD8_ROLE') + ">", embed=embed)
 	except Exception as e:
-		print("Something went wrong getting the Fortnite status: " + str(repr(e)) + "\nRestarting internal task in 3 minutes.")
-		await asyncio.sleep(180)
-		fortnite_status_bg.restart()
+		print(f"Something went wrong getting the Fortnite status: {str(repr(e))}")
 
 @tasks.loop(minutes=5)
 async def fortnite_shop_update_v3():
@@ -329,76 +367,71 @@ async def fortnite_shop_update_v3():
 		cursor.executemany("INSERT INTO shop_v3_content VALUES (?, ?)", [(item[0], item[1]) for item in featured])
 		cursor.execute("UPDATE shop_v3 SET date = ?", (date,))
 
-@tasks.loop(minutes=180)
+@tasks.loop(minutes=180, reconnect=True)
 async def coles_specials_bg():
-	try:
-		channel = discord_client.get_channel(int(os.getenv('COLES_SPECIALS_CHANNEL')))
-		product_url = "https://www.coles.com.au/product/"
-		items = cursor.execute("SELECT * FROM coles_specials").fetchall()
-		item_ids = cursor.execute("SELECT id FROM coles_specials").fetchall()
-		item_ids_list = []
-		for id in item_ids:
-			item_ids_list.append(id[0])
-		results = api_coles.get_items(item_ids_list)
-		invalid_ids = results['invalid_ids']
-		if len(invalid_ids) > 0:
-			await channel.send("Couldn't find any products with these IDs: " + str(invalid_ids))
-		results = results['items']
-		items_new = []
-		for item in results:
-			items_new.append(item)
-		if items != items_new:
-			for item in items_new:
-				cursor.execute("UPDATE coles_specials SET available = ?, on_sale = ?, current_price = ? WHERE id = ?", (item[6], item[5], item[4], item[0]))
-		for item1, item2 in zip(items, items_new):
-			differences_exist = any(old_value != new_value for old_value, new_value in zip(item1[4:], item2[4:]))
-			if differences_exist:
-				embed = discord.Embed(title=f"{item2[2]} {item2[1]}", url=product_url + str(item2[0]), color=0xe01a22)
-				embed.set_thumbnail(url=item2[9])
-				field_names = ['Price', 'Promotion', 'Available']
-				for name, old_value, new_value in zip(field_names, item1[4:], item2[4:]):
-					if name == 'Price':
-						# if old_value != new_value:
-						# 	cursor.execute("INSERT INTO coles_price_history (id, price, date) VALUES (?, ?, ?)", (item2[0], item2[4], dt.now(pytz.timezone('Australia/Sydney')).strftime('%Y-%m-%d %H:%M:%S')))
-						if new_value is None:
-							field_value = f"~~${old_value}~~\nPrice not specified"
-						else:
-							field_value = f"~~${old_value}~~\n${float(new_value)} ({helpers.percentage_change(old_value, new_value)})" if old_value != new_value else f"${new_value}"
-					elif name == 'Promotion' and item2[10]:
-						field_value = f"~~{bool(old_value)}~~\n{new_value} ({item2[10]})" if old_value != new_value else f"{new_value} ({item2[10]})"
+	channel = discord_client.get_channel(int(os.getenv('COLES_SPECIALS_CHANNEL')))
+	product_url = "https://www.coles.com.au/product/"
+	items = cursor.execute("SELECT * FROM coles_specials").fetchall()
+	item_ids = cursor.execute("SELECT id FROM coles_specials").fetchall()
+	item_ids_list = []
+	for id in item_ids:
+		item_ids_list.append(id[0])
+	results = api_coles.get_items(item_ids_list)
+	invalid_ids = results['invalid_ids']
+	if len(invalid_ids) > 0:
+		await channel.send("Couldn't find any products with these IDs: " + str(invalid_ids))
+	results = results['items']
+	items_new = []
+	for item in results:
+		items_new.append(item)
+	if items != items_new:
+		for item in items_new:
+			cursor.execute("UPDATE coles_specials SET available = ?, on_sale = ?, current_price = ? WHERE id = ?", (item[6], item[5], item[4], item[0]))
+	for item1, item2 in zip(items, items_new):
+		differences_exist = any(old_value != new_value for old_value, new_value in zip(item1[4:], item2[4:]))
+		if differences_exist:
+			embed = discord.Embed(title=f"{item2[2]} {item2[1]}", url=product_url + str(item2[0]), color=0xe01a22)
+			embed.set_thumbnail(url=item2[9])
+			field_names = ['Price', 'Promotion', 'Available']
+			for name, old_value, new_value in zip(field_names, item1[4:], item2[4:]):
+				if name == 'Price':
+					# if old_value != new_value:
+					# 	cursor.execute("INSERT INTO coles_price_history (id, price, date) VALUES (?, ?, ?)", (item2[0], item2[4], dt.now(pytz.timezone('Australia/Sydney')).strftime('%Y-%m-%d %H:%M:%S')))
+					if new_value is None:
+						field_value = f"~~${old_value}~~\nPrice not specified"
 					else:
+						field_value = f"~~${old_value}~~\n${float(new_value)} ({helpers.percentage_change(old_value, new_value)})" if old_value != new_value else f"${new_value}"
+				elif name == 'Promotion' and item2[10]:
+					field_value = f"~~{bool(old_value)}~~\n{new_value} ({item2[10]})" if old_value != new_value else f"{new_value} ({item2[10]})"
+				else:
 
-						field_value = f"~~{bool(old_value)}~~\n{new_value}" if old_value != new_value else new_value
-					embed.add_field(name=name, value=field_value, inline=False)
-				if item2[7]:
-					field_value = f"{item2[7]} - reduces the price per unit to ${item2[8]}" if item2[8] else f"{item2[7]}"
-					embed.add_field(name='Promotion details', value=field_value, inline=False)
-				# embed.add_field(name='Recommendation', value=api_openai.coles_recommendation(item2[0], item2[4], dt.now(pytz.timezone('Australia/Sydney')).strftime('%Y-%m-%d %H:%M:%S')), inline=False)
-				await channel.send(embed=embed)
-	except Exception as e:
-		await channel.send("Something went wrong getting item details from Coles: " + str(repr(e)) + "\nRestarting internal task in 3 hours")
-		await asyncio.sleep(10800)
-		coles_specials_bg.restart()
+					field_value = f"~~{bool(old_value)}~~\n{new_value}" if old_value != new_value else new_value
+				embed.add_field(name=name, value=field_value, inline=False)
+			if item2[7]:
+				field_value = f"{item2[7]} - reduces the price per unit to ${item2[8]}" if item2[8] else f"{item2[7]}"
+				embed.add_field(name='Promotion details', value=field_value, inline=False)
+			embed.add_field(name='Recommendation', value=api_openai.coles_recommendation(item2[0], item2[4], dt.now(pytz.timezone('Australia/Sydney')).strftime('%Y-%m-%d %H:%M:%S')), inline=False)
+			await channel.send(embed=embed)
 
 @tasks.loop(minutes=30)
 async def lego_bg():
 	# try:
-		channel = discord_client.get_channel(int(os.getenv('LEGO_CHANNEL')))
-		product_url = 'https://www.lego.com/en-au/product/'
-		items_old = cursor.execute("SELECT * FROM lego").fetchall()
-		items_new = []
-		for item in items_old:
-			result = api_lego.get_lego_item_by_id(item[0])
-			if result:
-				result = result['data']['product']
-				product_code = int(result['productCode'])
-				name = result['name']
-				image_url = result['baseImgUrl']
-				slug = result['slug']
-				availability = result['variant']['attributes']['availabilityText']
-				on_sale = result['variant']['attributes']['onSale']
-				price = result['variant']['price']['formattedAmount']
-				items_new.append((product_code, name, image_url, slug, availability, on_sale, price))
+	channel = discord_client.get_channel(int(os.getenv('LEGO_CHANNEL')))
+	product_url = 'https://www.lego.com/en-au/product/'
+	items_old = cursor.execute("SELECT * FROM lego").fetchall()
+	items_new = []
+	for item in items_old:
+		result = api_lego.get_lego_item_by_id(item[0])
+		if result:
+			result = result['data']['product']
+			product_code = int(result['productCode'])
+			name = result['name']
+			image_url = result['baseImgUrl']
+			slug = result['slug']
+			availability = result['variant']['attributes']['availabilityText']
+			on_sale = result['variant']['attributes']['onSale']
+			price = result['variant']['price']['formattedAmount']
+			items_new.append((product_code, name, image_url, slug, availability, on_sale, price))
 
 		if items_old != items_new:
 			for item in items_new:
@@ -503,7 +536,7 @@ async def gog_free_games():
 	else:
 		cursor.execute("DELETE FROM gog_free_games")
 
-@tasks.loop(minutes=30)
+@tasks.loop(minutes=30, reconnect=True)
 async def tv_show_update_bg():
 	try:
 		user = discord_client.get_user(int(os.getenv('ME')))
@@ -521,11 +554,9 @@ async def tv_show_update_bg():
 			cursor.execute("UPDATE rss SET guid = ?", (latest_guid,))
 			await user.send(embed = rssembed)
 	except Exception as e:
-		print("Something went wrong getting the TV show RSS: " + str(repr(e)) + "\nRestarting internal task in 1 minute.")
-		await asyncio.sleep(60)
-		tv_show_update_bg.restart()
+		print(f"Something went wrong getting the TV show RSS: {str(repr(e))}")
 
-@tasks.loop(minutes=10)
+@tasks.loop(minutes=10, reconnect=True)
 async def ozb_bangers():
 	try:
 		feed = feedparser.parse("https://www.ozbargain.com.au/deals/feed")
@@ -562,10 +593,8 @@ async def ozb_bangers():
 				cursor.execute("INSERT INTO ozbargain VALUES (?)", (link,))
 	except Exception as e:
 		print(f"ozb_bangers encountered an exception: {e}")
-		await asyncio.sleep(60)
-		ozb_bangers.restart()
 
-@tasks.loop(minutes=5)
+@tasks.loop(minutes=5, reconnect=True)
 async def fuel_check():
 	channel = discord_client.get_channel(int(os.getenv('FUEL_CHANNEL')))
 	try:
@@ -577,10 +606,9 @@ async def fuel_check():
 			cursor.execute("UPDATE fuel SET price = ?", (str(response['price']),))
 			await channel.send(f"The cheapest fuel is {response['type']} at {response['suburb']} for {response['price']}.")
 	except Exception as e:
-		# await channel.send(f"Uh oh {e}")
 		print(f"fuel loop encountered an exception: {e}")
 
-@tasks.loop(time=coles_time)
+@tasks.loop(time=coles_time, reconnect=True)
 async def tv_updates():
 	try:
 		today = dt.now().weekday()
@@ -624,69 +652,112 @@ async def tv_updates():
 			await ch.send(embed=embed)
 	except Exception as e:
 		print(f"tv_updates task failed: {e}")
-		await asyncio.sleep(3600)
-		tv_updates.restart()
+
+@tasks.loop(minutes=6)
+async def stat_updates():
+    token = os.getenv('HOME_ASSISTANT_LONG_LIVED_ACCESS_TOKEN')
+
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "Content-Type": "application/json",
+    }
+
+    channel = discord_client.get_channel(os.getenv('STAT_VC_1'))
+    channel2 = discord_client.get_channel(os.getenv('STAT_VC_2'))
+
+    import aiohttp
+    try:
+        async with aiohttp.ClientSession() as session:
+
+            url_temp = "http://nas.jack.vc:8123/api/states/sensor.universal_remote_temperature"
+            async with session.get(url_temp, headers=headers) as resp_temp:
+                if resp_temp.status != 200:
+                    print("Home Assistant request for temperature failed:", resp_temp.status)
+                    return
+                data_temp = await resp_temp.json()
+
+            sensor_entity =	os.getenv('ABB_SENSOR_ENTITY')
+            url_data_used = f"http://nas.jack.vc:8123/api/states/{sensor_entity}"
+            async with session.get(url_data_used, headers=headers) as resp_data:
+                if resp_data.status != 200:
+                    print(f"Home Assistant request for {sensor_entity} failed:", resp_data.status)
+                    data_data = None
+                else:
+                    data_data = await resp_data.json()
+
+    except Exception as e:
+        print("Exception while querying Home Assistant:", e)
+        return
+
+    temperature = data_temp.get('state') if data_temp else None
+    if channel and temperature is not None:
+        try:
+            await channel.edit(name=str(temperature) + "°C")
+        except Exception as e:
+            print("Failed to edit temperature channel:", e)
+
+    if channel2:
+        try:
+            if data_data and 'state' in data_data:
+                await channel2.edit(name=str(data_data['state']) + " TB")
+            else:
+                print(f"No data returned for {sensor_entity}, skipping channel2 update.")
+        except Exception as e:
+            print("Failed to edit channel2 with sensor data:", e)
 
 @tasks.loop(time=coles_time)
 async def coles_updates():
 	print("Started coles_updates task")
 	api_coles.try_bad_boys()
-	channel = discord_client.get_channel(int(os.getenv('COLES_UPDATES_CHANNEL')))
-	headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36'}
-	namespace = {'ns': 'http://www.sitemaps.org/schemas/sitemap/0.9'}
-	pattern = re.compile(r'(\d+)$')
 
-	def get_product_sitemap_urls():
-		url = os.getenv('COLES_SITEMAP_URL')
-		urls = []
+	build_id = api_coles.get_latest_build_id()
+	browse_data = api_coles.fetch_category_structure(build_id)
+	if not browse_data:
+		print("Failed to get category structure")
+		return
+	categories = api_coles.extract_top_level_categories(browse_data)
+	if not categories:
+		print("No categories found")
+		return
 
-		response = requests.get(url, headers=headers)
-		if response.status_code == 200:
-			with open('output.xml', 'wb') as f:
-				f.write(response.content)
-			tree = ET.parse('output.xml')
-			root = tree.getroot()
-			loc_elements = root.findall('.//ns:loc', namespace)
-			for loc in loc_elements:
-				urls.append(loc.text)
-			return urls
-		else:
-			return response.status_code
-		
+	print(f"Found {len(categories)} top-level categories")
 
-	def get_products_from_urls(urls):
-		files_list = []
-		for url in urls:
-			index = urls.index(url)
-			files_list.append(f"output{index}.xml")
-			response = requests.get(url, headers=headers)
-			if response.status_code == 200:
-				with open(f'output{index}.xml', 'wb') as f:
-					f.write(response.content)
+	scraped_count = 0
+	processed_categories = 0
+
+	for i, category in enumerate(categories, 1):
+		print(f"Processing category {i}/{len(categories)}: {category['name']} (Products: {category['product_count']})")
+
+		try:
+			products = api_coles.process_category(category, build_id)
+			if products:
+				save_path = api_coles.save_category_data(category, products, build_id)
+				scraped_count += len(products)
+				processed_categories += 1
+				print(f"Processed {processed_categories}/{len(categories)} categories, total products scraped: {scraped_count}")
 			else:
-				return response.status_code
-		return files_list
+				print("No products saved for this category")
+		except Exception as e:
+			print(f"Error processing category {category['name']}: {e}")
+			
 
+	print(f"Processed categories: {processed_categories}/{len(categories)}")
+	print(f"Total products scraped: {scraped_count}")
 
-	# sitemap_urls = get_product_sitemap_urls()
+	channel = discord_client.get_channel(int(os.getenv('COLES_UPDATES_CHANNEL')))
 
-	# files = get_products_from_urls(sitemap_urls)
+	file_data = api_coles.get_items_from_files("coles_data")
+	all_items_raw = file_data['items']
+	invalid_file_ids = file_data['invalid_ids']
 
-	files = ['output0.xml', 'output1.xml']
+	items_dict = {}
+	for item in all_items_raw:
+		item_id = item[0]
+		items_dict[item_id] = item
+	all_items = list(items_dict.values())
+	print(f"Raw items: {len(all_items_raw)}, Deduplicated: {len(all_items)}")
 
-	products = []
-
-	for file in files:
-		tree = ET.parse(file)
-		root = tree.getroot()
-
-
-		for url_element in root.findall('ns:url', namespace):
-			product_url = url_element.find('ns:loc', namespace).text
-			match = pattern.search(product_url)
-			if match:
-				product_id = match.group(1)
-				products.append(product_id)
+	products = [str(item[0]) for item in all_items]
 
 	active_ids = cursor.execute("SELECT id FROM coles_active_ids").fetchall()
 	active_ids = [x[0] for x in active_ids]
@@ -698,71 +769,108 @@ async def coles_updates():
 	if new_items:
 		product_ids_int = [int(id_str) for id_str in new_items if int(id_str) not in error_ids]
 		if product_ids_int:
-			results = api_coles.get_items(product_ids_int)
-			for item in results['items']:
-					item_id = item[0]
-					item_name = item[1]
-					item_brand = item[2]
-					await channel.send(f"[{item_brand} {item_name}](https://coles.com.au/product/{item_id}) was added to the database.")
+			new_item_data = [item for item in all_items if item[0] in product_ids_int]
+			for item in new_item_data:
+				item_id = item[0]
+				item_name = item[1]
+				item_brand = item[2]
+				await channel.send(f"[{item_brand} {item_name}](https://coles.com.au/product/{item_id}) was added to the database.")
+
 			insert_data = [(id,) for id in product_ids_int]
 			cursor.executemany("INSERT INTO coles_active_ids (id) VALUES (?)", insert_data)
+
+	if invalid_file_ids:
+		for item_id in invalid_file_ids:
+			if item_id:
+				cursor.execute("DELETE FROM coles_active_ids WHERE id = ?", (item_id,))
+				await channel.send(f"Product ID {item_id} was removed from the database due to invalid data in files.")
 
 	active_ids = cursor.execute("SELECT id FROM coles_active_ids").fetchall()
 	active_ids = [x[0] for x in active_ids]
 
-	batch_size = 350
+	if active_ids:
+		placeholders = ','.join('?' * len(active_ids))
+
+		latest_prices_query = f"""
+			SELECT id, price 
+			FROM coles_price_history 
+			WHERE id IN ({placeholders})
+			AND (id, date) IN (
+				SELECT id, MAX(date) 
+				FROM coles_price_history 
+				WHERE id IN ({placeholders})
+				GROUP BY id
+			)
+		"""
+		latest_prices = cursor.execute(latest_prices_query, active_ids + active_ids).fetchall()
+		latest_prices_dict = {item_id: price for item_id, price in latest_prices}
+
+		max_prices_query = f"""
+			SELECT id, MAX(CAST(price AS REAL)) as max_price
+			FROM coles_price_history 
+			WHERE id IN ({placeholders})
+			GROUP BY id
+		"""
+		max_prices = cursor.execute(max_prices_query, active_ids).fetchall()
+		max_prices_dict = {item_id: str(max_price) for item_id, max_price in max_prices}
+	else:
+		latest_prices_dict = {}
+		max_prices_dict = {}
+
 	insert_data = []
 
-	for i in range(0, len(active_ids), batch_size):
-		batch = active_ids[i:i+batch_size]
-		results = api_coles.get_items(batch)
-		if results:
-			if len(results['invalid_ids']) > 0:
-				for item in results['invalid_ids']:
-					cursor.execute("DELETE FROM coles_active_ids WHERE id = ?", (item['id'],))
-					await channel.send(f"[{item_brand} {item_name}](https://coles.com.au/product/{item['id']}) was deleted from the database because its ID returned invalid.")
-			for item in results['items']:
-				item_id = item[0]
-				item_price = item[4]
-				item_name = item[1]
-				item_brand = item[2]
-				item_image = item[9]
-				
-				if item_price is None:
-					# cursor.execute("DELETE FROM coles_active_ids WHERE id = ?", (item_id,))
-					# print(f"{item_id} was removed from the database as there was no price data.")
-					# await channel.send(f"https://coles.com.au/product/{item_id} was discontinued.")
-					continue
+	for item in all_items:
+		item_id = item[0]
+		item_price = item[4]
+		item_name = item[1]
+		item_brand = item[2]
+		item_image = item[9]
 
-				date = dt.now(pytz.timezone('Australia/Sydney')).strftime('%Y-%m-%d %H:%M:%S')
-				item_price = str(item_price)
-				
-				db_price = cursor.execute("SELECT price FROM coles_price_history WHERE id = ? ORDER BY date DESC LIMIT 1",(item_id,)).fetchone()
-				if db_price is None:
-					insert_data.append((item_id, item_price, date))
-					continue
-				
-				max_price = cursor.execute("SELECT price FROM coles_price_history WHERE id = ? ORDER BY CAST(price AS REAL) DESC LIMIT 1", (item_id,)).fetchone()[0]
-				if db_price[0] != item_price:
-					insert_data.append((item_id, item_price, date))
-					if float(item_price) > float(max_price):
-						await channel.send(f"[{item_brand} {item_name}](https://coles.com.au/product/{item_id}) reached an all-time high: ${str(max_price)} -> ${str(item_price)} ({helpers.percentage_change(float(max_price), float(item_price))}).")
-						price_history_document = {
-							"item_brand": item_brand,
-							"item_name": item_name,
-							"item_id": item_id,
-							"image_url": item_image,
-							"price_before": float(max_price),
-							"price_after": float(item_price),
-							"date": dt.now(pytz.timezone('Australia/Sydney'))
-						}
-						try:
-							await coles_updates_collection.insert_one(price_history_document)
-							print(f"Inserted price history for item_id: {item_id}")
-						except Exception as e:
-							print(f"Error inserting into MongoDB: {e}")
-		else:
+		if item_price == 0 or item_price == "0":
+			print(f"WARNING: Zero price detected for item {item_id} ({item_brand} {item_name})")
+			print(f"Raw item data: {item}")
 			continue
+
+		if item_id not in active_ids:
+			continue
+
+		if item_price is None:
+			print(f"DEBUG: Skipping item {item_id} ({item_brand} {item_name}) due to None price")
+			continue
+
+		date = dt.now(pytz.timezone('Australia/Sydney')).strftime('%Y-%m-%d %H:%M:%S')
+		item_price = str(item_price)
+
+		if item_price == "0":
+			print(f"WARNING: Price became zero after string conversion for item {item_id}")
+			print(f"Original price value: {item[4]}")
+			continue
+
+		db_price = latest_prices_dict.get(item_id)
+		if db_price is None:
+			print(f"DEBUG: Inserting new price history record: id={item_id}, price={item_price}, date={date}")
+			insert_data.append((item_id, item_price, date))
+			continue
+
+		max_price = max_prices_dict.get(item_id)
+		if db_price != item_price:
+			insert_data.append((item_id, item_price, date))
+			if max_price and float(item_price) > float(max_price):
+				await channel.send(f"[{item_brand} {item_name}](https://coles.com.au/product/{item_id}) reached an all-time high: ${str(max_price)} -> ${str(item_price)} ({helpers.percentage_change(float(max_price), float(item_price))}).")
+				price_history_document = {
+					"item_brand": item_brand,
+					"item_name": item_name,
+					"item_id": item_id,
+					"image_url": item_image,
+					"price_before": float(max_price),
+					"price_after": float(item_price),
+					"date": dt.now(pytz.timezone('Australia/Sydney'))
+				}
+				try:
+					await coles_updates_collection.insert_one(price_history_document)
+					print(f"Inserted price history for item_id: {item_id}")
+				except Exception as e:
+					print(f"Error inserting into MongoDB: {e}")
 
 	if insert_data:
 		cursor.executemany(
@@ -770,4 +878,12 @@ async def coles_updates():
 			insert_data
 		)
 		print(f"Inserted {len(insert_data)} new records into the price history.")
+	
+	coles_data_folder = "coles_data"
+	if os.path.exists(coles_data_folder):
+		shutil.rmtree(coles_data_folder)
+		print(f"Deleted contents of {coles_data_folder} folder.")
+	else:
+		print(f"{coles_data_folder} folder does not exist.")
+
 	print("Finished coles_updates task")

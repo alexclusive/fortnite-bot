@@ -16,6 +16,7 @@ import imports.slash_commands.cmd_owner as owner_cmd
 import imports.slash_commands.cmd_fortnite as fortnite_cmd
 import imports.slash_commands.cmd_notifyme as notifyme_cmd
 import imports.slash_commands.cmd_misc as misc_cmd
+import imports.slash_commands.cmd_ai as ai_cmd
 import imports.events as events
 
 heartrate.trace(browser=True, host='0.0.0.0')
@@ -134,6 +135,18 @@ async def delete_message_by_id(ctx, id):
 async def die(ctx):
 	await owner_cmd.die(ctx)
 
+@discord_client.slash_command(description="[Owner] Clear the conversation messages")
+async def clear_conversation(ctx):
+	await ai_cmd.clear_conversation(ctx)
+
+@discord_client.slash_command(description="[Owner] Start a new conversation")
+async def new_conversation(ctx):
+	await ai_cmd.new_conversation(ctx)
+
+@discord_client.slash_command(description="[Owner] List the conversation messages")
+async def list_conversation(ctx):
+	await ai_cmd.list_conversation(ctx)
+
 '''
 	Slash commands that can be used by anyone
 '''
@@ -169,10 +182,14 @@ async def update(ctx):
 @discord_client.slash_command(description="Check the bot's ping")
 async def ping(ctx):
 	await misc_cmd.ping(ctx)
-	
-@discord_client.slash_command(description="Generate an image with DALL-E 3")
-async def dalle3(ctx, prompt):
-	await misc_cmd.dalle3(ctx, prompt)
+
+@discord_client.slash_command(description="Clean TikTok link by removing tracking")
+async def clean_tiktok(ctx, url):
+	await misc_cmd.clean_tiktok(ctx, url)
+
+# @discord_client.slash_command(description="Generate an image with DALL-E 3")
+# async def dalle3(ctx, prompt):
+# 	await misc_cmd.dalle3(ctx, prompt)
 	
 @discord_client.slash_command(description="Train game - get to target using +-*/^")
 async def train_game(ctx, number, target=10):
@@ -201,6 +218,10 @@ async def on_member_remove(member):
 @discord_client.event
 async def on_member_update(before, after):
     await events.member_update(before, after)
+
+@discord_client.event
+async def on_message_edit(before, after):
+	await events.on_message_edit(before, after)
 
 # @discordClient.event
 # async def on_message(message):

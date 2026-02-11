@@ -16,7 +16,7 @@ from datetime import datetime
 import requests
 
 def is_owner(ctx):
-	return ctx.user.id == int(os.getenv('ME'))
+	return ctx.user.id == int(os.getenv('ME')) or ctx.user.id == int(os.getenv('SKYE'))
 
 '''
 	Owner only commands

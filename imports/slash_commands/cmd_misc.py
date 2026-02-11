@@ -2,15 +2,17 @@ import itertools
 import copy
 from imports.core_utils import discord, discord_client
 from discord.ext.pages import Paginator, Page
+import requests
+from urllib.parse import urlparse, parse_qs, urlencode, urlunparse
 
 import imports.api.api_openai as api_openai
 
 async def ping(ctx):
 	await ctx.respond("Ponged your ping in " + str(round(discord_client.latency * 1000)) + "ms 😳")
 
-async def dalle3(ctx, prompt):
-	await ctx.defer()
-	await ctx.respond(api_openai.dalle_prompt(prompt))
+# async def dalle3(ctx, prompt):
+# 	await ctx.defer()
+# 	await ctx.respond(api_openai.dalle_prompt(prompt))
 
 async def train_game(ctx, number, target):
 	try:
@@ -236,3 +238,25 @@ def format_and_paginate_all_solutions(solutions, target):
 		return result_lists
 	else:
 		return [formatted_list]
+
+async def clean_tiktok(ctx, url):
+    await ctx.defer()
+    try:
+        response = requests.head(url, allow_redirects=True, timeout=10)
+        clean_url = response.url
+
+        parsed = urlparse(clean_url)
+        query = parse_qs(parsed.query)
+
+        tracking_params = ['_r', '_t']
+
+        for param in tracking_params:
+            query.pop(param, None)
+
+        new_query = urlencode(query, doseq=True)
+
+        clean_url = urlunparse((parsed.scheme, parsed.netloc, parsed.path, parsed.params, new_query, parsed.fragment))
+
+        await ctx.respond(clean_url)
+    except Exception as e:
+        await ctx.respond(f"Failed to clean URL: {e}")

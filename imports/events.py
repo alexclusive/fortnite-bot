@@ -73,6 +73,20 @@ async def member_remove(member):
 	channel = discord_client.get_channel(int(os.getenv('BEG_4_VBUCKS')))
 	await channel.send(f"{member} just left the server. https://tenor.com/view/thanos-fortnite-takethel-dance-gif-12100688")
 
+async def on_message_edit(before, after):
+	if after.author == discord_client.user:
+		return
+	if after.channel.id == int(os.getenv('CRINGE_ZONE')):
+		api_openai.add_edit_to_thread(before, after)
+	for embed in after.embeds:
+		if embed.type == 'video':
+			channel = discord_client.get_channel(int(os.getenv('CLIPS_CHANNEL')))
+			button = Button(label="Jump", style=discord.ButtonStyle.link, url=message.jump_url)
+			view = View()
+			view.add_item(button)
+			await channel.send(embed.url, view=view)
+			await message.add_reaction("✅")
+
 async def member_update(before, after):
 	if before == discord_client.user or not after.nick:
 		return

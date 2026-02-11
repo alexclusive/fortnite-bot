@@ -9,4 +9,6 @@
 *.log
 *.xml
 *.png
+*.jpg
+*.jpeg
 test.py
