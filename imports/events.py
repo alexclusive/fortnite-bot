@@ -1,34 +1,41 @@
 import os
+
 import discord
-from discord.ui import Button, View
-from imports.core_utils import discord_client, cursor
-import imports.helpers as helpers
+
 import imports.api.api_openai as api_openai
+import imports.helpers as helpers
+from imports.core_utils import discord_client
+
+cringe_zone = int(os.getenv('CRINGE_ZONE'))
+clips_channel = int(os.getenv('CLIPS_CHANNEL'))
+clip_message_map = {}
+
+async def publish_clip(source_message):
+	channel = discord_client.get_channel(clips_channel)
+	clip_message = await source_message.forward_to(channel)
+	clip_message_map.setdefault(source_message.id, []).append(clip_message.id)
+	await source_message.add_reaction("✅")
+	return clip_message
+
 
 async def message(message):
 	if message.author == discord_client.user:
 		return
-	if message.channel.id == int(os.getenv('CRINGE_ZONE')):
+	if message.channel.id == cringe_zone:
 		api_openai.add_to_thread(message)
 	if helpers.embed_tweets(message):
 		webhook = (await message.channel.webhooks())[0]
 		await webhook.send(content=helpers.embed_tweets(message), username=message.author.name, avatar_url=message.author.avatar)
 		await message.delete()
 		return
-	if discord_client.user in message.mentions and str(message.channel.type) != 'private':
+	if discord_client.user in message.mentions and str(message.channel.type) != 'private' and message.channel.id == cringe_zone:
 		async with message.channel.typing():
 			response = api_openai.create_run()
 			await message.reply(response, mention_author=False)
 	for attachment in message.attachments:
 		attachment_type, _ = attachment.content_type.split('/')
 		if attachment_type == 'video':
-			link_message = attachment.url
-			channel = discord_client.get_channel(int(os.getenv('CLIPS_CHANNEL')))
-			button = Button(label="Jump", style=discord.ButtonStyle.link, url=message.jump_url)
-			view = View()
-			view.add_item(button)
-			await channel.send(link_message, view=view)
-			await message.add_reaction("✅")
+			await publish_clip(message)
 		if attachment_type == 'audio':
 			await attachment.save("audio.mp3")
 			response = api_openai.transcribe_audio("audio.mp3")
@@ -54,20 +61,18 @@ async def reaction(reaction, user):
 		api_openai.add_reaction(reaction, user)
 	except Exception as e:
 		print("Failed to record reaction in thread buffer:", e)
-	if reaction.emoji == "👀" and user != discord_client.user:
-		users = await reaction.users().flatten()
-		if discord_client.user in users:
-			await reaction.clear()
-			message_id = reaction.message.id
-			response = cursor.execute("SELECT guess, score FROM ai WHERE id = ?", (message_id,)).fetchall()
-			await reaction.message.reply(str(response) + "\nRequested by " + user.mention, mention_author=False)
-	if reaction.emoji == "💡" and user != discord_client.user:
-		users = await reaction.users().flatten()
-		if discord_client.user in users:
-			await reaction.clear()
-			message_id = reaction.message.id
-			response = cursor.execute("SELECT guess, score FROM ai_text WHERE id = ?", (message_id,)).fetchall()
-			await reaction.message.reply(str(response) + "\nRequested by " + user.mention, mention_author=False)
+	if reaction.emoji == "✅" and reaction.message.id in clip_message_map and (user == reaction.message.author or user.id == os.getenv('ME')):
+		clip_ids = clip_message_map.pop(reaction.message.id, [])
+		channel = discord_client.get_channel(clips_channel)
+		if channel:
+			for clip_id in clip_ids:
+				try:
+					clip_message = await channel.fetch_message(clip_id)
+					await clip_message.delete()
+				except Exception:
+					pass
+		await reaction.clear()
+		return
 
 async def member_remove(member):
 	channel = discord_client.get_channel(int(os.getenv('BEG_4_VBUCKS')))
@@ -76,16 +81,13 @@ async def member_remove(member):
 async def on_message_edit(before, after):
 	if after.author == discord_client.user:
 		return
-	if after.channel.id == int(os.getenv('CRINGE_ZONE')):
+	if after.channel.id == cringe_zone:
 		api_openai.add_edit_to_thread(before, after)
-	for embed in after.embeds:
+	if not before.embeds and after.embeds:
+		print("after.embeds triggered")
+		embed = after.embeds[0]
 		if embed.type == 'video':
-			channel = discord_client.get_channel(int(os.getenv('CLIPS_CHANNEL')))
-			button = Button(label="Jump", style=discord.ButtonStyle.link, url=message.jump_url)
-			view = View()
-			view.add_item(button)
-			await channel.send(embed.url, view=view)
-			await message.add_reaction("✅")
+			await publish_clip(after)
 
 async def member_update(before, after):
 	if before == discord_client.user or not after.nick:

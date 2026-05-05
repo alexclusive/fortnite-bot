@@ -1,32 +1,30 @@
-import os
-import sys
 import asyncio
 import faulthandler
-import signal
 import logging
+import os
+import signal
+import sys
+
+import discord
 import heartrate
-
 from dotenv import load_dotenv
-from systemd.journal import JournalHandler
-from imports.core_utils import discord_client
 
-import imports.tasks1 as bg_tasks
 import imports.commands as cmd
-import imports.slash_commands.cmd_owner as owner_cmd
-import imports.slash_commands.cmd_fortnite as fortnite_cmd
-import imports.slash_commands.cmd_notifyme as notifyme_cmd
-import imports.slash_commands.cmd_misc as misc_cmd
-import imports.slash_commands.cmd_ai as ai_cmd
 import imports.events as events
+import imports.slash_commands.cmd_ai as ai_cmd
+import imports.slash_commands.cmd_fortnite as fortnite_cmd
+import imports.slash_commands.cmd_misc as misc_cmd
+import imports.slash_commands.cmd_notifyme as notifyme_cmd
+import imports.slash_commands.cmd_owner as owner_cmd
+import imports.tasks1 as bg_tasks
+
+# from systemd.journal import JournalHandler
+from imports.core_utils import discord_client
 
 heartrate.trace(browser=True, host='0.0.0.0')
 
-log = logging.getLogger('demo')
-log.addHandler(JournalHandler())
-log.setLevel(logging.INFO)
-log.info('sent to journal')
-
 logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 faulthandler.enable(file=open('error.log', 'w'))
 faulthandler.register(signal.SIGUSR1.value)
@@ -63,6 +61,14 @@ async def search(ctx, string):
 @coles_group.command(description="View the price over time of a tracked item")
 async def graph(ctx, id):
 	await cmd.generate_graph(ctx, id)
+
+@coles_group.command(description="Generate a shopping list of your tracked items that are currently on sale")
+async def shopping_list(ctx, mode: discord.Option(str, choices=["default", "floor_only"], description="Filter mode: default (mid-range and floor) or floor_only") = "default"):
+	await cmd.shopping_list(ctx, mode)
+
+@coles_group.command(description="Backfill AI data for your tracked items")
+async def backfill(ctx):
+	await cmd.backfill_coles_ai(ctx)
 
 @notifyme_group.command(description="Add or remove a cosmetic")
 async def edit(ctx, item):

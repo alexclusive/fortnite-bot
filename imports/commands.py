@@ -1,19 +1,38 @@
 import os
 import re
+import threading
+from datetime import datetime
+
 import discord
+import matplotlib.pyplot as plt
+import pytz
+from discord.ext.pages import Page, Paginator
 
-from discord.ext.pages import Paginator, Page
-
-from imports.helpers import nice_try, removed, added
-from imports.core_utils import cursor
 import imports.api.api_coles as api_coles
 import imports.api.api_lego as api_lego
 import imports.api.api_tfnsw as api_tfnsw
-import matplotlib.pyplot as plt
-import matplotlib.dates as mdates
-from datetime import datetime
+from imports.api import api_openai
+from imports.core_utils import cursor
+from imports.helpers import added, nice_try, removed
 
-import requests
+
+def get_date():
+	return datetime.now(pytz.timezone('Australia/Sydney')).strftime('%Y-%m-%d %H:%M:%S')
+
+
+def enqueue_coles_ai_update(item_id, current_price, tracked_by):
+	def worker():
+		try:
+			ai_data = api_openai.coles_recommendation(item_id, current_price, get_date())
+			api_coles.cursor.execute(
+				"UPDATE coles_specials SET ai_status = ?, ai_recommendation = ?, ai_logic = ? WHERE id = ? AND tracked_by = ?",
+				(ai_data.current_status, ai_data.recommendation, ai_data.logic, item_id, tracked_by),
+			)
+		except Exception as e:
+			print(f"Failed to update AI data for {item_id}: {e}")
+
+	threading.Thread(target=worker, daemon=True).start()
+
 
 def is_owner(ctx):
 	return ctx.user.id == int(os.getenv('ME')) or ctx.user.id == int(os.getenv('SKYE'))
@@ -22,7 +41,7 @@ def is_owner(ctx):
 	Owner only commands
 '''
 
-def coles_edit_2(item_id):
+def coles_edit_2(item_id, ctx):
 	result = api_coles.get_items([item_id])
 	result = result['items'][0]
 	if result:
@@ -33,12 +52,20 @@ def coles_edit_2(item_id):
 		current_price = result[4]
 		on_sale = result[5]
 		available = result[6]
-		result_db = api_coles.cursor.execute("SELECT * FROM coles_specials WHERE id = ?", (item_id,)).fetchone()
+		ai_status = result[7]
+		ai_recommendation = result[8]
+		ai_logic = result[9]
+		result_db = api_coles.cursor.execute("SELECT * FROM coles_specials WHERE id = ? AND tracked_by = ?", (item_id, ctx.author.id)).fetchone()
 		if result_db:
-			api_coles.cursor.execute("DELETE FROM coles_specials WHERE id = ?", (item_id,))
+			api_coles.cursor.execute("DELETE FROM coles_specials WHERE id = ? AND tracked_by = ?", (item_id, ctx.author.id))
 			return f"Removed {brand} {name} from your list"
 		else:
-			api_coles.cursor.execute("INSERT INTO coles_specials VALUES (?, ?, ?, ?, ?, ?, ?)", (item_id, name, brand, description, current_price, on_sale, available))
+			# Immediate add, then do AI work in background to avoid blocking the interaction
+			api_coles.cursor.execute(
+				"INSERT INTO coles_specials VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)" ,
+				(item_id, name, brand, description, current_price, on_sale, available, None, None, None, ctx.author.id)
+			)
+			enqueue_coles_ai_update(item_id, current_price, ctx.author.id)
 			return f"Added {brand} {name} to your list"
 	else:
 		return result
@@ -58,13 +85,20 @@ async def coles_edit(ctx, item_id):
 			current_price = result[4]
 			on_sale = result[5]
 			available = result[6]
-			result_db = api_coles.cursor.execute("SELECT * FROM coles_specials WHERE id = ?", (item_id,)).fetchone()
+			ai_status = result[7]
+			ai_recommendation = result[8]
+			ai_logic = result[9]
+			result_db = api_coles.cursor.execute("SELECT * FROM coles_specials WHERE id = ? AND tracked_by = ?", (item_id, ctx.author.id)).fetchone()
 			if result_db:
-				api_coles.cursor.execute("DELETE FROM coles_specials WHERE id = ?", (item_id,))
+				api_coles.cursor.execute("DELETE FROM coles_specials WHERE id = ? AND tracked_by = ?", (item_id, ctx.author.id))
 				await ctx.respond(f"Removed {brand} {name} from your list")
 			else:
-				api_coles.cursor.execute("INSERT INTO coles_specials VALUES (?, ?, ?, ?, ?, ?, ?)", (item_id, name, brand, description, current_price, on_sale, available))
+				api_coles.cursor.execute(
+					"INSERT INTO coles_specials VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+					(item_id, name, brand, description, current_price, on_sale, available, None, None, None, ctx.author.id),
+				)
 				await ctx.respond(f"Added {brand} {name} to your list")
+				enqueue_coles_ai_update(item_id, current_price, ctx.author.id)
 		else:
 			await ctx.respond(result)
 
@@ -73,20 +107,101 @@ async def coles_list(ctx):
 		await ctx.respond(nice_try)
 	else:
 		try:
-			tracked = api_coles.cursor.execute("SELECT * FROM coles_specials")
-			embed = discord.Embed(title = "Items you're tracking")
-			for item in tracked:
-				item_id = item[0]
-				name = item[1]
-				brand = item[2]
-				current_price = item[4]
-				on_sale = item[5]
-				available = item[6]
-				compact_info = f"**Brand**: {brand}\n**Price**: ${current_price}\n**On special**: {'Yes' if on_sale else 'No'}\n**Availability**: {'Available' if available else 'Unavailable'}"
-				embed.add_field(name=f"{item_id} - {name}", value=compact_info, inline=False)
-			await ctx.respond(embed=embed)
+			tracked = api_coles.cursor.execute("SELECT * FROM coles_specials WHERE tracked_by = ?", (ctx.author.id,))
+			tracked = tracked.fetchall()
+			if not tracked:
+				await ctx.respond("No items tracked.", ephemeral=True)
+				return
+			items_per_page = 8
+			pages = []
+			for i in range(0, len(tracked), items_per_page):
+				chunk = tracked[i:i+items_per_page]
+				embed = discord.Embed(title="Items you're tracking")
+				for item in chunk:
+					item_id = item[0]
+					name = item[1]
+					brand = item[2]
+					current_price = item[4]
+					on_sale = item[5]
+					available = item[6]
+					ai_status = item[7]
+					ai_recommendation = item[8]
+					ai_logic = item[9]
+					compact_info = f"**Brand**: {brand}\n**Price**: ${current_price}\n**On special**: {'Yes' if on_sale else 'No'}\n**Availability**: {'Available' if available else 'Unavailable'}\n**Status**: {ai_status}\n**Recommendation**: {ai_recommendation}\n**Logic**: {ai_logic}"
+					embed.add_field(name=f"{item_id} - {name}", value=compact_info, inline=False)
+				pages.append(Page(embeds=[embed]))
+			paginator = Paginator(pages=pages)
+			await paginator.respond(ctx.interaction)
 		except Exception as e:
 			await ctx.respond(f"Couldn't get list: {e}")
+
+async def shopping_list(ctx, mode="default"):
+    if mode == "floor_only":
+        query = """
+            SELECT brand, name, current_price, ai_status
+            FROM coles_specials 
+            WHERE tracked_by = ?
+            AND available = 1 
+            AND ai_status = 'Floor'
+        """
+    else:
+        query = """
+            SELECT brand, name, current_price, ai_status
+            FROM coles_specials 
+            WHERE tracked_by = ?
+            AND available = 1 
+            AND ai_status != 'Peak'
+            AND (ai_recommendation = 'Buy Now' OR ai_status = 'Mid-Range' OR ai_status = 'Stagnant')
+        """
+    items = cursor.execute(query, (ctx.author.id,)).fetchall()
+
+    if not items:
+        return await ctx.respond("Nothing worth buying at the moment.", ephemeral=True)
+
+    items_per_page = 8
+    pages = []
+    for i in range(0, len(items), items_per_page):
+        chunk = items[i:i+items_per_page]
+        embed = discord.Embed(title="Shopping List", color=0x18a558)
+        for item in chunk:
+            embed.add_field(
+                name=f"{item[0]} {item[1]} - ${item[2]:.2f}",
+                value=f"**Status**: {item[3]}",
+                inline=False
+            )
+        pages.append(Page(embeds=[embed]))
+    paginator = Paginator(pages=pages)
+    await paginator.respond(ctx.interaction)
+
+async def backfill_coles_ai(ctx):
+    await ctx.defer()
+    
+    items = cursor.execute("SELECT id, brand, name, current_price FROM coles_specials WHERE tracked_by = ?", (ctx.author.id,)).fetchall()
+    current_date = datetime.now(pytz.timezone('Australia/Sydney')).strftime('%Y-%m-%d %H:%M:%S')
+    
+    count = 0
+    for item in items:
+        item_id, brand, name, price = item[0], item[1], item[2], item[3]
+        
+        if price is None:
+            continue
+            
+        try:
+            ai_data = api_openai.coles_recommendation(item_id, price, current_date)
+            
+            cursor.execute("""
+                UPDATE coles_specials 
+                SET ai_status = ?, ai_recommendation = ?, ai_logic = ? 
+                WHERE id = ?
+            """, (ai_data.current_status, ai_data.recommendation, ai_data.logic, item_id))
+            
+            count += 1
+            print(f"Backfilled {brand} {name}: {ai_data.current_status}")
+            
+        except Exception as e:
+            print(f"Failed to backfill {item_id}: {e}")
+
+    await ctx.followup.send(f"✅ Successfully backfilled AI data for {count} items.")
 
 '''
 	Coles commands
@@ -104,7 +219,7 @@ async def coles_search(ctx, string):
 		@discord.ui.button(label="Track", style=discord.ButtonStyle.primary, custom_id="track_button")
 		async def button_callback(self, button: discord.ui.Button, interaction: discord.Interaction):
 			if is_owner(ctx):
-				await interaction.response.send_message(coles_edit_2(self.item_id))
+				await interaction.response.send_message(coles_edit_2(self.item_id, ctx))
 			else:
 				await interaction.response.send_message("You don't have permission to edit this list.", ephemeral=True)
 

@@ -1,23 +1,24 @@
-import boto3
-import io
-import uuid
-import os
-import json
-import requests
-import openai
 import base64
-from pydantic import BaseModel, Field
-from typing import Literal, Optional
+import io
+import json
+import os
+import uuid
 from datetime import datetime
+from typing import Literal, Optional
 from zoneinfo import ZoneInfo
 
+import boto3
+import openai
+import requests
 from openai import OpenAI
+from pydantic import BaseModel, Field
+
 from imports.core_utils import cursor
 
 MAX_CONVERSATION_MESSAGES = 40
 
-import asyncio
 from dotenv import load_dotenv
+
 load_dotenv() #even though we've already loaded dotenv in main, the app will refuse to run unless it's loaded here again. why? who knows :)
 
 client = OpenAI(
@@ -192,7 +193,39 @@ def create_run():
                 "required": ["prompt"]
             }
         }
-    ]
+    ,
+
+    {
+
+        "type": "function",
+
+        "name": "get_wordle_answer",
+
+        "description": "Get the Wordle solution for a specific date.",
+
+        "parameters": {
+
+            "type": "object",
+
+            "properties": {
+
+                "date": {
+
+                    "type": "string",
+
+                    "description": "The date in YYYY-MM-DD format"
+
+                }
+
+            },
+
+            "required": ["date"]
+
+        }
+
+    }
+
+]
 
     try:
         print("DEBUG: Creating initial response")
@@ -201,6 +234,7 @@ def create_run():
             "Speak casually as you would in a chat room, mirroring the slang/style/humour of the chat and match its vibe. "
             "You are not an assistant, bot, or moderator. Never offer help, lists, summaries, or follow-up questions unless asked. "
             "The current datetime (AEST/AEDT) is " + datetime.now(ZoneInfo("Australia/Sydney")).strftime("%Y-%m-%d %H:%M:%S") + ". "
+            "You can get Wordle solutions using the get_wordle_answer tool when someone asks for the Wordle answer. "
             "Keep responses as short as possible."
         )
         response = client.responses.create(
@@ -230,6 +264,7 @@ def create_run():
         print(f"DEBUG: Function calls found: {len(function_calls)}")
 
         generated_image_urls = []
+        wordle_solutions = []
         last_call_id = None
 
         for fc in function_calls:
@@ -261,6 +296,20 @@ def create_run():
                     except Exception as e:
                         print("Failed to generate image:", e)
 
+                elif func_name == "get_wordle_answer":
+
+                    date = args.get("date")
+
+                    solution = get_wordle_answer(date)
+
+                    if solution:
+
+                        wordle_solutions.append(solution)
+
+                        if fc_call_id:
+
+                            last_call_id = fc_call_id
+
             except Exception as e:
                 print("Failed to process function call:", e)
 
@@ -279,6 +328,28 @@ def create_run():
             except Exception as e:
                 print("Failed to prepare function_call_output for follow-up response:", e)
 
+        if wordle_solutions:
+
+            try:
+
+                output_item = {
+
+                    "type": "function_call_output",
+
+                    "call_id": last_call_id,
+
+                    "output": json.dumps({"wordle_solutions": wordle_solutions})
+
+                }
+
+                input_messages.append(output_item)
+
+                print(f"DEBUG: Appended function_call_output for wordle: {output_item}")
+
+            except Exception as e:
+
+                print("Failed to prepare function_call_output for wordle:", e)
+
         final_response = response
         if function_calls:
             print("DEBUG: Making second responses.create call")
@@ -288,6 +359,7 @@ def create_run():
                     "Speak casually as you would in a chat room, mirroring the slang/style/humour of the chat and match its vibe. "
                     "You are not an assistant, bot, or moderator. Never offer help, lists, summaries, or follow-up questions unless asked. "
                     "The current datetime (AEST/AEDT) is " + datetime.now(ZoneInfo("Australia/Sydney")).strftime("%Y-%m-%d %H:%M:%S") + ". "
+                    "You can get Wordle solutions using the get_wordle_answer tool when someone asks for the Wordle answer. "
                     "Keep responses as short as possible."
                 )
                 final_response = client.responses.create(
@@ -583,6 +655,19 @@ def dalle_prompt(prompt):
         return image_url
 
     raise Exception("OpenRouter/GPT-5-image-mini did not return an image")
+
+def get_wordle_answer(date: str) -> str:
+    try:
+        url = f"https://www.nytimes.com/svc/wordle/v2/{date}.json"
+        response = requests.get(url)
+        if response.status_code == 200:
+            data = response.json()
+            return data.get("solution", "")
+        else:
+            return ""
+    except Exception as e:
+        print(f"Failed to get Wordle answer: {e}")
+        return ""
 
 def transcribe_audio(file):
 	audio_file= open(file, "rb")
