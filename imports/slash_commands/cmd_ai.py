@@ -60,7 +60,7 @@ async def list_conversation(ctx):
                 for c in content:
                     c_type = getattr(c, "type", None)
                     if c_type == "input_text":
-                        text = getattr(c, "text", "").replace('"', '\\"')
+                        text = getattr(c, "text", "").replace("\"", "\\\"")
                         content_parts.append(f"InputTextContent(text=\"{text}\", type='input_text')")
                     elif c_type == "input_image":
                         detail = getattr(c, "detail", "auto")
@@ -68,7 +68,7 @@ async def list_conversation(ctx):
                         image_url = getattr(c, "image_url", None)
                         content_parts.append(f"InputImageContent(detail='{detail}', file_id={file_id}, image_url={image_url}, type='input_image')")
                     elif c_type == "output_text":
-                        text = getattr(c, "text", "").replace('"', '\\"')
+                        text = getattr(c, "text", "").replace("\"", "\\\"")
                         annotations = getattr(c, "annotations", [])
                         logprobs = getattr(c, "logprobs", [])
                         content_parts.append(f"OutputTextContent(annotations={annotations}, text=\"{text}\", type='output_text', logprobs={logprobs})")
@@ -78,13 +78,13 @@ async def list_conversation(ctx):
 
             elif item_type == "function_call_output":
                 call_id = getattr(item, "call_id", None)
-                output = getattr(item, "output", "").replace('"', '\\"')
+                output = getattr(item, "output", "").replace("\"", "\\\"")
                 conversation_parts.append(f"ResponseFunctionToolCallOutputItem(id='{id}', call_id='{call_id}', output='{output}', type='{item_type}', status='{status}')")
 
             elif item_type == "function_call":
                 call_id = getattr(item, "call_id", None)
                 name = getattr(item, "name", None)
-                arguments = getattr(item, "arguments", "").replace('"', '\\"')
+                arguments = getattr(item, "arguments", "").replace("\"", "\\\"")
                 conversation_parts.append(f"ResponseFunctionToolCallItem(arguments='{arguments}', call_id='{call_id}', name='{name}', type='{item_type}', id='{id}', status='{status}')")
 
             elif item_type == "reasoning":

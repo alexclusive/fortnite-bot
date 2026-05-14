@@ -26,11 +26,11 @@ def update_build_number():
     build_version = cursor.execute(select_coles_version).fetchone()[0]
     url = "https://www.coles.com.au/_next/data/"
     r = requests.get(url, headers=HEADERS)
-    soup = BeautifulSoup(r.content, 'html.parser')
+    soup = BeautifulSoup(r.content, "html.parser")
     script = soup.find("script", id="__NEXT_DATA__")
     if script:
         json_data = json.loads(script.string)
-        build_id = json_data['buildId']
+        build_id = json_data["buildId"]
         if build_id != build_version:
             cursor.execute("UPDATE coles_version SET version = ?", (build_id,))
             print(f"Coles API version number was updated to {build_id}")
@@ -47,7 +47,7 @@ def search_item(query):
         if r.status_code == 404:
             return "Your search returned a 404"
     r = r.json()
-    results = r['pageProps']['searchResults']
+    results = r["pageProps"]["searchResults"]
     return results
 
 def get_items(id_list):
@@ -70,48 +70,54 @@ def get_items(id_list):
             print(f"Trying {item}")
             response = get_items([item])
             if response:
-                if len(response['invalid_ids']) > 0:
-                    new_invalid_ids_list.append(response['invalid_ids'][0])
+                if len(response["invalid_ids"]) > 0:
+                    new_invalid_ids_list.append(response["invalid_ids"][0])
                 else:
-                    new_item_list.extend(response['items'])
+                    new_item_list.extend(response["items"])
         data = {
             "invalid_ids": new_invalid_ids_list,
             "items": new_item_list
         }
         return data
+    
     r = r.json()
-    for item in r['results']:
-        item_id = item['id']
-        name = item['name']
-        brand = item['brand']
-        description = item['description']
-        image_url = "https://productimages.coles.com.au/productimages" + item['imageUris'][0]['uri']
+    for item in r["results"]:
+        item_id = item["id"]
+        name = item["name"]
+        brand = item["brand"]
+        description = item["description"]
+        image_url = "https://productimages.coles.com.au/productimages" + item["imageUris"][0]["uri"]
+
         try:
-            current_price = item['pricing']['now']
+            current_price = item["pricing"]["now"]
         except:
             current_price = None
-        if item.get('pricing') and item['pricing'].get('promotionType'):
+
+        if item.get("pricing") and item["pricing"].get("promotionType"):
             on_sale = True
-            promotion_type = item['pricing']['promotionType']
+            promotion_type = item["pricing"]["promotionType"]
         else:
             on_sale = False
             promotion_type = ""
+
         try:
-            available = item['availability']
+            available = item["availability"]
         except:
             available = None
-        if item.get('pricing') and item['pricing'].get('offerDescription'):
-            offer_description = item['pricing']['offerDescription']
+
+        if item.get("pricing") and item["pricing"].get("offerDescription"):
+            offer_description = item["pricing"]["offerDescription"]
         else:
             offer_description = ""
-        if item.get('pricing') and item['pricing'].get('multiBuyPromotion'):
-            multibuy_unit_price = item['pricing']['multiBuyPromotion']['reward']
+
+        if item.get("pricing") and item["pricing"].get("multiBuyPromotion"):
+            multibuy_unit_price = item["pricing"]["multiBuyPromotion"]["reward"]
         else:
             multibuy_unit_price = ""
-        online_special = item.get('pricing', {}).get('onlineSpecial', False)
+        online_special = item.get("pricing", {}).get("onlineSpecial", False)
         item_list.append([item_id, name, brand, description, current_price, on_sale, available, offer_description, multibuy_unit_price, image_url, promotion_type, online_special])
     data = {
-        "invalid_ids": r['invalidProducts'],
+        "invalid_ids": r["invalidProducts"],
         "items": item_list
     }
     return data
@@ -170,7 +176,7 @@ def extract_top_level_categories(browse_data):
         return top_categories
 
 def fetch_category_products(category, build_id, page=1):
-    url = f"{BASE_URL}/_next/data/{build_id}/browse/{category['seo_token']}.json"
+    url = f"{BASE_URL}/_next/data/{build_id}/browse/{category["seo_token"]}.json"
     params = {"page": page}
     
     response = fetch_with_retry(url, params=params)
@@ -227,7 +233,7 @@ def parse_product(product_data):
     elif "friendlyUrlNext" in product_data:
         product["url"] = urljoin(BASE_URL, product_data["friendlyUrlNext"])
     else:
-        name_slug = re.sub(r'[^\w-]+', '-', product.get("name", "product").lower())[:50]
+        name_slug = re.sub(r"[^\w-]+", '-', product.get("name", "product").lower())[:50]
         product["url"] = f"{BASE_URL}/product/{name_slug}/p/{product['id']}"
     
     images = []
@@ -243,7 +249,7 @@ def parse_product(product_data):
     return product
 
 def process_category(category, build_id):
-    print(f"Processing {category['name']} (ID: {category['id']})")
+    print(f"Processing {category["name"]} (ID: {category["id"]})")
     all_products = []
     page = 1
     total_products_expected = category.get("product_count", 0)
@@ -278,17 +284,13 @@ def process_category(category, build_id):
         if count == 0:
             print("No products parsed, stopping")
             break
-            
         if len(all_products) >= total_products_expected:
             break
-            
         if len(all_products) >= total_products:
             break
-            
         if page >= 150:
             print("Reached maximum page limit (150)")
             break
-            
         if count < 36:
             print("Short page detected, likely end of products")
             break
@@ -301,7 +303,7 @@ def process_category(category, build_id):
 def save_category_data(category, products, build_id):
     os.makedirs("coles_data", exist_ok=True)
     timestamp = dt.now().strftime("%Y%m%d-%H%M%S")
-    slug = re.sub(r'[^a-z0-9]+', '-', category["name"].lower())
+    slug = re.sub(r"[^a-z0-9]+", '-', category["name"].lower())
     filename = f"coles_{slug}_{timestamp}.json"
     filepath = os.path.join("coles_data", filename)
     

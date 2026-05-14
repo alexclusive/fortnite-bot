@@ -7,8 +7,9 @@ from dotenv import load_dotenv
 load_dotenv()
 uname = os.getenv("TFNSW_USERNAME")
 pwd = os.getenv("TFNSW_PASSWORD")
-today_d = dt.today().strftime('%Y-%m-%d')
-seven_d = (dt.today() - timedelta(days=7)).strftime('%Y-%m-%d')
+today_d = dt.today().strftime("%Y-%m-%d")
+seven_d = (dt.today() - timedelta(days=7)).strftime("%Y-%m-%d")
+failure_text = "Failed to obtain token."
 
 session = requests.Session()
 session.headers.update({
@@ -26,7 +27,7 @@ def login(session, username, password):
     try:
         response = session.post(url, json=payload)
         if response.status_code == 200:
-            token = response.json().get('access_token').strip()
+            token = response.json().get("access_token").strip()
             cursor.execute("UPDATE tfnsw_access_token SET token = ?", (token,))
             print(f"New token is: {token}")
             return token
@@ -68,7 +69,7 @@ def get_cards():
     if not token:
         token = refresh_token()
         if not token:
-            return "Failed to obtain token."
+            return failure_text
 
     url = "https://transportnsw.info/api/opal/api/customer/smartcards/"
     headers = {
@@ -94,7 +95,7 @@ def top_up(card_id, cents):
     if not token:
         token = refresh_token()
         if not token:
-            return "Failed to obtain token."
+            return failure_text
 
     url = "https://transportnsw.info/api/opal/api/smartcard/topup/"
     payload = {
@@ -124,7 +125,7 @@ def get_trip_history(card_id):
     if not token:
         token = refresh_token()
         if not token:
-            return "Failed to obtain token."
+            return failure_text
 
     url = f"https://transportnsw.info/api/opal/api/smartcard/activity/{card_id}"
     params = {

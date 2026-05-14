@@ -2,6 +2,7 @@ import base64
 import io
 import json
 import os
+import re
 import uuid
 from datetime import datetime
 from typing import Literal, Optional
@@ -18,6 +19,10 @@ from imports.core_utils import cursor
 MAX_CONVERSATION_MESSAGES = 40
 
 from dotenv import load_dotenv
+
+gpt_model = "gpt-4.1"
+base64_encoding = ";base64,"
+jpg_type = "image/jpeg"
 
 load_dotenv() #even though we've already loaded dotenv in main, the app will refuse to run unless it's loaded here again. why? who knows :)
 
@@ -89,14 +94,12 @@ def get_image_as_base64(url: str) -> Optional[str]:
     try:
         response = requests.get(url)
         if response.status_code == 200:
-            content_type = response.headers.get('content-type', 'image/jpeg')
-            b64_content = base64.b64encode(response.content).decode('utf-8')
+            content_type = response.headers.get("content-type", jpg_type)
+            b64_content = base64.b64encode(response.content).decode("utf-8")
             return f"data:{content_type};base64,{b64_content}"
     except Exception as e:
         print(f"Failed to get image as base64: {e}")
     return None
-
-
 
 def add_to_thread(message):
     author_name = getattr(message.author, "nick", None) \
@@ -119,15 +122,15 @@ def add_to_thread(message):
         pass
 
     if is_reply:
-        full_text = f"{author_name} replied to {ref_author_name}'s message `{reply_excerpt}`: {message.content or ''}"
+        full_text = f"{author_name} replied to {ref_author_name}'s message `{reply_excerpt}`: {message.content or ""}"
     else:
-        full_text = f"{author_name} said: {message.content or ''}"
+        full_text = f"{author_name} said: {message.content or ""}"
     content_list = [{"type": "input_text", "text": full_text}]
 
     if message.attachments:
         for attachment in message.attachments:
-            attachment_type, _ = attachment.content_type.split('/')
-            if attachment_type == 'image':
+            attachment_type, _ = attachment.content_type.split("/")
+            if attachment_type == "image":
                 image_data = requests.get(attachment.url).content
                 filename = f"{message.id}_{attachment.filename}"
                 filepath = os.path.join("temp_images", filename)
@@ -137,12 +140,11 @@ def add_to_thread(message):
                 from PIL import Image
                 img = Image.open(filepath)
                 print(img.size, os.path.getsize(filepath))
-                b64_content = base64.b64encode(image_data).decode('utf-8')
+                b64_content = base64.b64encode(image_data).decode("utf-8")
                 data_url = f"data:{attachment.content_type};base64,{b64_content}"
                 content_list.append({"type": "input_image", "image_url": data_url, "detail": "high"})
 
-    import re
-    url_pattern = r'https?://[^\s]+\.(?:png|jpg|jpeg|gif|webp)(?:\?[^\s]*)?'
+    url_pattern = r"https?://[^\s]+\.(?:png|jpg|jpeg|gif|webp)(?:\?[^\s]*)?"
     urls = re.findall(url_pattern, full_text)
     for url in urls:
         try:
@@ -153,8 +155,8 @@ def add_to_thread(message):
             with open(filepath, "wb") as f:
                 f.write(image_data)
             print(f"Image from URL uploaded and saved: {filepath}")
-            content_type = 'image/jpeg'
-            b64_content = base64.b64encode(image_data).decode('utf-8')
+            content_type = jpg_type
+            b64_content = base64.b64encode(image_data).decode("utf-8")
             data_url = f"data:{content_type};base64,{b64_content}"
             content_list.append({"type": "input_image", "image_url": data_url, "detail": "high"})
         except Exception as e:
@@ -171,8 +173,6 @@ def add_to_thread(message):
         prune_old_messages()
     except Exception as e:
         print("Failed to add message to conversation:", e)
-
-
 
 def create_run():
     print("DEBUG: Starting create_run")
@@ -192,40 +192,23 @@ def create_run():
                 },
                 "required": ["prompt"]
             }
+        },
+        {
+            "type": "function",
+            "name": "get_wordle_answer",
+            "description": "Get the Wordle solution for a specific date.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "date": {
+                        "type": "string",
+                        "description": "The date in YYYY-MM-DD format"
+                    }
+                },
+                "required": ["date"]
+            }
         }
-    ,
-
-    {
-
-        "type": "function",
-
-        "name": "get_wordle_answer",
-
-        "description": "Get the Wordle solution for a specific date.",
-
-        "parameters": {
-
-            "type": "object",
-
-            "properties": {
-
-                "date": {
-
-                    "type": "string",
-
-                    "description": "The date in YYYY-MM-DD format"
-
-                }
-
-            },
-
-            "required": ["date"]
-
-        }
-
-    }
-
-]
+    ]
 
     try:
         print("DEBUG: Creating initial response")
@@ -238,7 +221,7 @@ def create_run():
             "Keep responses as short as possible."
         )
         response = client.responses.create(
-            model="gpt-4.1",
+            model=gpt_model,
             conversation=get_conversation_id(),
             input=[],
             tools=tools,
@@ -265,7 +248,8 @@ def create_run():
 
         generated_image_urls = []
         wordle_solutions = []
-        last_call_id = None
+        dalle_call_id = None
+        wordle_call_id = None
 
         for fc in function_calls:
             print(f"DEBUG: Processing function call: {fc}")
@@ -291,36 +275,29 @@ def create_run():
                         if isinstance(url, str):
                             generated_image_urls.append(url)
                             if fc_call_id:
-                                last_call_id = fc_call_id
+                                dalle_call_id = fc_call_id
                         print(f"DEBUG: Generated URLs so far: {generated_image_urls}")
                     except Exception as e:
                         print("Failed to generate image:", e)
-
                 elif func_name == "get_wordle_answer":
-
                     date = args.get("date")
-
                     solution = get_wordle_answer(date)
-
                     if solution:
-
                         wordle_solutions.append(solution)
-
                         if fc_call_id:
-
-                            last_call_id = fc_call_id
-
+                            wordle_call_id = fc_call_id
             except Exception as e:
                 print("Failed to process function call:", e)
 
         print(f"DEBUG: Generated image URLs: {generated_image_urls}")
         input_messages = []
         print(f"DEBUG: Initial input_messages: {input_messages}")
+
         if generated_image_urls:
             try:
                 output_item = {
                     "type": "function_call_output",
-                    "call_id": last_call_id,
+                    "call_id": dalle_call_id,
                     "output": json.dumps({"generated_images": generated_image_urls})
                 }
                 input_messages.append(output_item)
@@ -329,25 +306,15 @@ def create_run():
                 print("Failed to prepare function_call_output for follow-up response:", e)
 
         if wordle_solutions:
-
             try:
-
                 output_item = {
-
                     "type": "function_call_output",
-
-                    "call_id": last_call_id,
-
+                    "call_id": wordle_call_id,
                     "output": json.dumps({"wordle_solutions": wordle_solutions})
-
                 }
-
                 input_messages.append(output_item)
-
                 print(f"DEBUG: Appended function_call_output for wordle: {output_item}")
-
             except Exception as e:
-
                 print("Failed to prepare function_call_output for wordle:", e)
 
         final_response = response
@@ -363,19 +330,21 @@ def create_run():
                     "Keep responses as short as possible."
                 )
                 final_response = client.responses.create(
-                    model="gpt-4.1",
+                    model=gpt_model,
                     conversation=get_conversation_id(),
                     tools=tools,
                     instructions=final_instructions_text,
-                    input=input_messages if 'input_messages' in locals() else [],
+                    input=input_messages if "input_messages" in locals() else [],
                 )
                 print("DEBUG: Second response created successfully")
             except Exception as e:
                 print(f"DEBUG: Second response failed, falling back to initial response. Error: {e}")
                 final_response = response
+
         print(f"DEBUG: Final response object: {final_response}")
         output_text = getattr(final_response, "output_text", None)
         print(f"DEBUG: output_text from final_response: {output_text}")
+
         if isinstance(output_text, str):
             text_out = output_text
         elif output_text is None:
@@ -391,6 +360,7 @@ def create_run():
             except Exception:
                 text_out = ""
         print(f"DEBUG: text_out: '{text_out}'")
+
         if generated_image_urls:
             if text_out.strip():
                 print("DEBUG: Returning text_out.strip()")
@@ -398,6 +368,7 @@ def create_run():
             else:
                 print("DEBUG: Returning joined URLs")
                 return "\n".join(generated_image_urls)
+            
         print("DEBUG: Returning text_out")
         return text_out
     except Exception as e:
@@ -417,20 +388,19 @@ def add_edit_to_thread(before, after):
 
         if after.attachments:
             for attachment in after.attachments:
-                attachment_type, _ = attachment.content_type.split('/')
-                if attachment_type == 'image':
+                attachment_type, _ = attachment.content_type.split("/")
+                if attachment_type == "image":
                     image_data = requests.get(attachment.url).content
                     filename = f"{after.id}_{attachment.filename}"
                     filepath = os.path.join("temp_images", filename)
                     with open(filepath, "wb") as f:
                         f.write(image_data)
                     print(f"Image uploaded in edit and saved: {filepath}")
-                    b64_content = base64.b64encode(image_data).decode('utf-8')
+                    b64_content = base64.b64encode(image_data).decode("utf-8")
                     data_url = f"data:{attachment.content_type};base64,{b64_content}"
                     content_list.append({"type": "input_image", "image_url": data_url, "detail": "high"})
 
-        import re
-        url_pattern = r'https?://[^\s]+\.(?:png|jpg|jpeg|gif|webp)(?:\?[^\s]*)?'
+        url_pattern = r"https?://[^\s]+\.(?:png|jpg|jpeg|gif|webp)(?:\?[^\s]*)?"
         urls = re.findall(url_pattern, after.content)
         for url in urls:
             try:
@@ -440,8 +410,8 @@ def add_edit_to_thread(before, after):
                 with open(filepath, "wb") as f:
                     f.write(image_data)
                 print(f"Image from URL in edit uploaded and saved: {filepath}")
-                content_type = 'image/jpeg'
-                b64_content = base64.b64encode(image_data).decode('utf-8')
+                content_type = jpg_type
+                b64_content = base64.b64encode(image_data).decode("utf-8")
                 data_url = f"data:{content_type};base64,{b64_content}"
                 content_list.append({"type": "input_image", "image_url": data_url, "detail": "high"})
             except Exception as e:
@@ -513,6 +483,12 @@ def add_reaction(reaction, user):
     except Exception as e:
         print("Failed to add reaction to conversation:", e)
 
+def is_http_or_https(url: str) -> bool:
+    return url.startswith(("http://", "https://"))
+
+def is_base64(text:str) -> bool:
+    return text.startswith("data:") and base64_encoding in text
+
 def dalle_prompt(prompt):
     openrouter_key = os.getenv("OPENROUTER_API_KEY")
     openrouter_base = "https://openrouter.ai/api/v1"
@@ -572,21 +548,20 @@ def dalle_prompt(prompt):
             url = extract_url_from_entry(entry)
             if not url:
                 continue
-            if url.startswith("data:") and ";base64," in url:
+            if is_base64(url):
                 try:
-                    b64 = url.split(";base64,")[-1]
+                    b64 = url.split(base64_encoding)[-1]
                     image_bytes = base64.b64decode(b64)
                     break
                 except Exception:
                     continue
-            if url.startswith("http://") or url.startswith("https://"):
+            if is_http_or_https(url):
                 data = try_download(url)
                 if data:
                     image_bytes = data
                     break
                 else:
                     image_url = url
-                    continue
 
     if not image_bytes and not image_url:
         raw_content = msg.get("content") if isinstance(msg, dict) else getattr(msg, "content", None)
@@ -597,14 +572,14 @@ def dalle_prompt(prompt):
                 if block.get("type") == "image_url":
                     url = extract_url_from_entry(block)
                     if url:
-                        if url.startswith("data:") and ";base64," in url:
+                        if is_base64(url):
                             try:
-                                b64 = url.split(";base64,")[-1]
+                                b64 = url.split(base64_encoding)[-1]
                                 image_bytes = base64.b64decode(b64)
                                 break
                             except Exception:
                                 continue
-                        if url.startswith("http://") or url.startswith("https://"):
+                        if is_http_or_https(url):
                             data = try_download(url)
                             if data:
                                 image_bytes = data
@@ -614,33 +589,32 @@ def dalle_prompt(prompt):
                                 continue
                 if block.get("type") == "text":
                     txt = block.get("text", "") or ""
-                    if "data:" in txt and ";base64," in txt:
+                    if is_base64(txt):
                         try:
-                            b64 = txt.split(";base64,")[-1]
+                            b64 = txt.split(base64_encoding)[-1]
                             image_bytes = base64.b64decode(b64)
                             break
                         except Exception:
                             pass
                     s = txt.strip()
-                    if s.startswith("http://") or s.startswith("https://"):
+                    if is_http_or_https(s):
                         data = try_download(s)
                         if data:
                             image_bytes = data
                             break
                         else:
                             image_url = s
-                            continue
         elif isinstance(raw_content, str):
             s = raw_content.strip()
-            if s.startswith("http://") or s.startswith("https://"):
+            if is_http_or_https(s):
                 data = try_download(s)
                 if data:
                     image_bytes = data
                 else:
                     image_url = s
-            elif "data:" in s and ";base64," in s:
+            elif is_base64(s):
                 try:
-                    b64 = s.split(";base64,")[-1]
+                    b64 = s.split(base64_encoding)[-1]
                     image_bytes = base64.b64decode(b64)
                 except Exception:
                     pass
@@ -696,7 +670,7 @@ def coles_recommendation(item_id, price, date):
     """
 
     response = client.beta.chat.completions.parse(
-        model="gpt-4.1",
+        model=gpt_model,
         messages=[
             {"role": "system", "content": "You are a grocery price bot. Minimize spend."},
             {"role": "user", "content": prompt},

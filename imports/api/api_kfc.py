@@ -8,6 +8,9 @@ from dotenv import load_dotenv
 
 from imports.core_utils import cursor
 
+json_application = "application/json"
+user_agent = "okhttp/4.10.0"
+
 load_dotenv()
 
 async def refresh_token():
@@ -26,9 +29,9 @@ async def refresh_token():
     }
     timeout = aiohttp.ClientTimeout(total=15)
     headers = {
-        "Accept": "application/json",
+        "Accept": json_application,
         "Content-Type": "application/x-www-form-urlencoded",
-        "User-Agent": "okhttp/4.10.0"
+        "User-Agent": user_agent
     }
     try:
         async with aiohttp.ClientSession(timeout=timeout) as session:
@@ -40,8 +43,8 @@ async def refresh_token():
                 text = await response.text()
                 if response.status == 200:
                     data = await response.json()
-                    access_token = data['access_token']
-                    ref_token = data['refresh_token']
+                    access_token = data["access_token"]
+                    ref_token = data["refresh_token"]
                     print(f"[{now}] Refresh succeeded: new access token received")
                     cursor.execute("UPDATE kfc_tokens SET access_token = ?, refresh_token = ?", (access_token, ref_token))
                     print(f"[{now}] New token saved to database")
@@ -62,9 +65,9 @@ async def get_active_basket():
     x_correlation_request_id = str(uuid.uuid4())
     x_correlation_session_id = str(uuid.uuid4())
     access_token = get_access_token()
-    user_id = os.getenv('KFC_USER_ID')
-    email = os.getenv('KFC_USER_EMAIL')
-    phone = os.getenv('KFC_USER_PHONE')
+    user_id = os.getenv("KFC_USER_ID")
+    email = os.getenv("KFC_USER_EMAIL")
+    phone = os.getenv("KFC_USER_PHONE")
     url = f"https://orderserv-kfc-apac-olo-api.yum.com/dev/v1/customers/{user_id}/signed-in"
 
     print(f"[{now}] get_active_basket request: user_id={user_id}, access_token_present={bool(access_token)}")
@@ -82,7 +85,7 @@ async def get_active_basket():
         }
     }
     headers = {
-        "accept": "application/json",
+        "accept": json_application,
         "x-tenant-id": "afd3813afa364270bfd33f0a8d77252d",
         "x-is-registered-user": "true",
         "x-user-id": user_id,
@@ -90,11 +93,11 @@ async def get_active_basket():
         "x-correlation-request-id": x_correlation_request_id,
         "x-correlation-session-id": x_correlation_session_id,
         "app-source": "mobile",
-        "content-type": "application/json",
+        "content-type": json_application,
         "host": "orderserv-kfc-apac-olo-api.yum.com",
         "connection": "Keep-Alive",
         "accept-encoding": "gzip",
-        "user-agent": "okhttp/4.10.0"
+        "user-agent": user_agent
     }
 
     timeout = aiohttp.ClientTimeout(total=15)
@@ -104,7 +107,7 @@ async def get_active_basket():
                 text = await response.text()
                 if response.status == 200:
                     data = await response.json()
-                    basket_id = data['customer']['basic']['inProgressBasketId']
+                    basket_id = data["customer"]["basic"]["inProgressBasketId"]
                     print(basket_id)
                     return basket_id
                 elif response.status == 401:
@@ -141,7 +144,7 @@ async def get_promos(basket_id):
         "host": "orderserv-kfc-apac-olo-api.yum.com",
         "connection": "Keep-Alive",
         "accept-encoding": "gzip",
-        "user-agent": "okhttp/4.10.0"
+        "user-agent": user_agent
     }
 
     promo_list = []
@@ -156,12 +159,12 @@ async def get_promos(basket_id):
                     data = await response.json()
                     print(f"[{now}] get_promos received {len(data)} promo items")
                     for item in data:
-                        start_date = f"<t:{int(item['startDateTime'])}:R>"
-                        end_date = f"<t:{int(item['endDateTime'])}:R>"
-                        global_redeems = item['usageCount']
-                        promo_details = item['promotionDetails']
-                        title = promo_details['title'][0]['value']
-                        description = promo_details['description'][0]['value']
+                        start_date = f"<t:{int(item["startDateTime"])}:R>"
+                        end_date = f"<t:{int(item["endDateTime"])}:R>"
+                        global_redeems = item["usageCount"]
+                        promo_details = item["promotionDetails"]
+                        title = promo_details["title"][0]["value"]
+                        description = promo_details["description"][0]["value"]
                         image_url = None
                         for image_field in ("imageUrl", "image_url", "image", "thumbnail", "imageURL"):
                             if image_field in promo_details and promo_details[image_field]:
@@ -170,31 +173,31 @@ async def get_promos(basket_id):
                                     image_url = candidate
                                     break
                                 if isinstance(candidate, dict):
-                                    candidate_value = candidate.get('value')
+                                    candidate_value = candidate.get("value")
                                     if candidate_value and is_valid_http_url(candidate_value):
                                         image_url = candidate_value
                                         break
-                        if not image_url and isinstance(promo_details.get('media'), list) and promo_details['media']:
-                            candidate = promo_details['media'][0].get('value')
+                        if not image_url and isinstance(promo_details.get("media"), list) and promo_details["media"]:
+                            candidate = promo_details["media"][0].get("value")
                             if candidate and is_valid_http_url(candidate):
                                 image_url = candidate
                         if not image_url:
-                            candidate = item.get('imageUrl') or item.get('image_url')
+                            candidate = item.get("imageUrl") or item.get("image_url")
                             if candidate and is_valid_http_url(candidate):
                                 image_url = candidate
-                        if not image_url and isinstance(item.get('itemDetails'), list):
-                            for detail in item['itemDetails']:
+                        if not image_url and isinstance(item.get("itemDetails"), list):
+                            for detail in item["itemDetails"]:
                                 if isinstance(detail, dict):
-                                    if isinstance(detail.get('imageName'), list) and detail['imageName']:
-                                        candidate = detail['imageName'][0].get('value')
+                                    if isinstance(detail.get("imageName"), list) and detail["imageName"]:
+                                        candidate = detail["imageName"][0].get("value")
                                         if candidate and is_valid_http_url(candidate):
                                             image_url = candidate
                                             break
-                                    content_image = detail.get('content', {}).get('image', {}).get('mainImage')
+                                    content_image = detail.get("content", {}).get("image", {}).get("mainImage")
                                     if content_image and is_valid_http_url(content_image):
                                         image_url = content_image
                                         break
-                        deal_id = str(item.get('id') or promo_details.get('promotionId') or f"{title}-{start_date}-{end_date}")
+                        deal_id = str(item.get("id") or promo_details.get("promotionId") or f"{title}-{start_date}-{end_date}")
                         promo_list.append({
                             "deal_id": deal_id,
                             "start_date": start_date,
