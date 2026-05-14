@@ -13,7 +13,6 @@ clip_blacklist = ["www.tiktok.com", "fxtwitter.com"]
 
 async def publish_clip(source_message):
 	if any(blacklisted in source_message.content.lower() for blacklisted in clip_blacklist):
-		await source_message.add_reaction("❌")
 		return
 	channel = discord_client.get_channel(clips_channel)
 	clip_message = await source_message.forward_to(channel)
