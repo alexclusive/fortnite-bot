@@ -52,10 +52,10 @@ async def message(message):
 		await message.channel.send(file=discord.File("assets/everyone.gif"))
 
 async def voice_state_update(member, before, after):
-    if member == discord_client.user:
-        return
-    if before.channel is None and after.channel is not None:
-        print(f"{member} joined {after.channel.id}")
+	if member == discord_client.user:
+		return
+	if before.channel is None and after.channel is not None:
+		print(f"{member} joined {after.channel.id}")
 
 async def reaction(reaction, user):
 	if user == discord_client.user:

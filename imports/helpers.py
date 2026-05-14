@@ -21,23 +21,23 @@ def timestampify_z(string):
 	return f"<t:{int(mktime(struct_time))}:R>"
 
 def embed_tweets(message):
-    url_regex = re.compile(r"https?:\/\/(?:www\.)?(twitter|x)\.com\/(?:#!\/)?(\w+)\/status(?:es)?\/(\d+)")
-    replacement_regex = r"https://fxtwitter.com/\2/status/\3"
-    match = url_regex.search(message.content)
-    if match:
-        url = match.group(0)
-        modified_url = re.sub(url_regex, replacement_regex, url)
-        modified_text = message.content.replace(url, modified_url)
-        return modified_text
+	url_regex = re.compile(r"https?:\/\/(?:www\.)?(twitter|x)\.com\/(?:#!\/)?(\w+)\/status(?:es)?\/(\d+)")
+	replacement_regex = r"https://fxtwitter.com/\2/status/\3"
+	match = url_regex.search(message.content)
+	if match:
+		url = match.group(0)
+		modified_url = re.sub(url_regex, replacement_regex, url)
+		modified_text = message.content.replace(url, modified_url)
+		return modified_text
 
 def percentage_change(old, new):
-    try:
-        change = new - old
-        relative_change = change / abs(old)
-        percentage_change = relative_change * 100
-        formatted_percentage_change = f"{percentage_change:.2f}%"
-        if percentage_change > 0:
-            formatted_percentage_change = "+" + formatted_percentage_change
-        return formatted_percentage_change
-    except ZeroDivisionError:
-        return "inf%"
+	try:
+		change = new - old
+		relative_change = change / abs(old)
+		percentage_change = relative_change * 100
+		formatted_percentage_change = f"{percentage_change:.2f}%"
+		if percentage_change > 0:
+			formatted_percentage_change = "+" + formatted_percentage_change
+		return formatted_percentage_change
+	except ZeroDivisionError:
+		return "inf%"

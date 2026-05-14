@@ -130,72 +130,72 @@ async def coles_list(ctx):
 			await ctx.respond(f"Couldn't get list: {e}")
 
 async def shopping_list(ctx, mode="default"):
-    if mode == "floor_only":
-        query = """
-            SELECT brand, name, current_price, ai_status
-            FROM coles_specials 
-            WHERE tracked_by = ?
-            AND available = 1 
-            AND ai_status = 'Floor'
-        """
-    else:
-        query = """
-            SELECT brand, name, current_price, ai_status
-            FROM coles_specials 
-            WHERE tracked_by = ?
-            AND available = 1 
-            AND ai_status != 'Peak'
-            AND (ai_recommendation = 'Buy Now' OR ai_status = 'Mid-Range' OR ai_status = 'Stagnant')
-        """
-    items = cursor.execute(query, (ctx.author.id,)).fetchall()
+	if mode == "floor_only":
+		query = """
+			SELECT brand, name, current_price, ai_status
+			FROM coles_specials 
+			WHERE tracked_by = ?
+			AND available = 1 
+			AND ai_status = 'Floor'
+		"""
+	else:
+		query = """
+			SELECT brand, name, current_price, ai_status
+			FROM coles_specials 
+			WHERE tracked_by = ?
+			AND available = 1 
+			AND ai_status != 'Peak'
+			AND (ai_recommendation = 'Buy Now' OR ai_status = 'Mid-Range' OR ai_status = 'Stagnant')
+		"""
+	items = cursor.execute(query, (ctx.author.id,)).fetchall()
 
-    if not items:
-        return await ctx.respond("Nothing worth buying at the moment.", ephemeral=True)
+	if not items:
+		return await ctx.respond("Nothing worth buying at the moment.", ephemeral=True)
 
-    items_per_page = 8
-    pages = []
-    for i in range(0, len(items), items_per_page):
-        chunk = items[i:i+items_per_page]
-        embed = discord.Embed(title="Shopping List", color=0x18a558)
-        for item in chunk:
-            embed.add_field(
-                name=f"{item[0]} {item[1]} - ${item[2]:.2f}",
-                value=f"**Status**: {item[3]}",
-                inline=False
-            )
-        pages.append(Page(embeds=[embed]))
-    paginator = Paginator(pages=pages)
-    await paginator.respond(ctx.interaction)
+	items_per_page = 8
+	pages = []
+	for i in range(0, len(items), items_per_page):
+		chunk = items[i:i+items_per_page]
+		embed = discord.Embed(title="Shopping List", color=0x18a558)
+		for item in chunk:
+			embed.add_field(
+				name=f"{item[0]} {item[1]} - ${item[2]:.2f}",
+				value=f"**Status**: {item[3]}",
+				inline=False
+			)
+		pages.append(Page(embeds=[embed]))
+	paginator = Paginator(pages=pages)
+	await paginator.respond(ctx.interaction)
 
 async def backfill_coles_ai(ctx):
-    await ctx.defer()
-    
-    items = cursor.execute("SELECT id, brand, name, current_price FROM coles_specials WHERE tracked_by = ?", (ctx.author.id,)).fetchall()
-    current_date = datetime.now(pytz.timezone("Australia/Sydney")).strftime("%Y-%m-%d %H:%M:%S")
-    
-    count = 0
-    for item in items:
-        item_id, brand, name, price = item[0], item[1], item[2], item[3]
-        
-        if price is None:
-            continue
-            
-        try:
-            ai_data = api_openai.coles_recommendation(item_id, price, current_date)
-            
-            cursor.execute("""
-                UPDATE coles_specials 
-                SET ai_status = ?, ai_recommendation = ?, ai_logic = ? 
-                WHERE id = ?
-            """, (ai_data.current_status, ai_data.recommendation, ai_data.logic, item_id))
-            
-            count += 1
-            print(f"Backfilled {brand} {name}: {ai_data.current_status}")
-            
-        except Exception as e:
-            print(f"Failed to backfill {item_id}: {e}")
+	await ctx.defer()
+	
+	items = cursor.execute("SELECT id, brand, name, current_price FROM coles_specials WHERE tracked_by = ?", (ctx.author.id,)).fetchall()
+	current_date = datetime.now(pytz.timezone("Australia/Sydney")).strftime("%Y-%m-%d %H:%M:%S")
+	
+	count = 0
+	for item in items:
+		item_id, brand, name, price = item[0], item[1], item[2], item[3]
+		
+		if price is None:
+			continue
+			
+		try:
+			ai_data = api_openai.coles_recommendation(item_id, price, current_date)
+			
+			cursor.execute("""
+				UPDATE coles_specials 
+				SET ai_status = ?, ai_recommendation = ?, ai_logic = ? 
+				WHERE id = ?
+			""", (ai_data.current_status, ai_data.recommendation, ai_data.logic, item_id))
+			
+			count += 1
+			print(f"Backfilled {brand} {name}: {ai_data.current_status}")
+			
+		except Exception as e:
+			print(f"Failed to backfill {item_id}: {e}")
 
-    await ctx.followup.send(f"✅ Successfully backfilled AI data for {count} items.")
+	await ctx.followup.send(f"✅ Successfully backfilled AI data for {count} items.")
 
 """
 	Coles commands

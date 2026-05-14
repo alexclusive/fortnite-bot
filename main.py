@@ -223,7 +223,7 @@ async def on_member_remove(member):
 
 @discord_client.event
 async def on_member_update(before, after):
-    await events.member_update(before, after)
+	await events.member_update(before, after)
 
 @discord_client.event
 async def on_message_edit(before, after):
@@ -245,19 +245,19 @@ def send_stdout_to_discord(message):
 			asyncio.ensure_future(channel.send(message))
 
 def send_stdout_to_discord(message):
-    message = message.strip()
+	message = message.strip()
 
-    if message:
-        channel = discord_client.get_channel(int(os.getenv("STDOUT")))
-        
-        if channel:
-            if len(message) > 2000:
-                chunks = [message[i:i+2000] for i in range(0, len(message), 2000)]
-                
-                for chunk in chunks:
-                    asyncio.ensure_future(channel.send(chunk))
-            else:
-                asyncio.ensure_future(channel.send(message))
+	if message:
+		channel = discord_client.get_channel(int(os.getenv("STDOUT")))
+		
+		if channel:
+			if len(message) > 2000:
+				chunks = [message[i:i+2000] for i in range(0, len(message), 2000)]
+				
+				for chunk in chunks:
+					asyncio.ensure_future(channel.send(chunk))
+			else:
+				asyncio.ensure_future(channel.send(message))
 
 sys.stdout.write = send_stdout_to_discord
 sys.stderr.write = send_stdout_to_discord
